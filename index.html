@@ -1273,14 +1273,19 @@ CRITICAL RULES — FOLLOW STRICTLY:
 6. Be warm, encouraging, use examples, explain step-by-step like a loving teacher.
 7. "teacher" field MUST contain answers to ALL ${qCount} questions — this is the most important field.
 
-RESPOND IN THIS EXACT JSON FORMAT (no extra text, no markdown, no code blocks):
+OUTPUT RULES — CRITICAL:
+- Return ONLY a valid JSON object. No markdown. No code blocks. No extra text before or after.
+- ALL field values must be ACTUAL CONTENT in ${selectedLangName} — NOT placeholder descriptions.
+- The "teacher" field must contain the REAL answer to the student's question(s).
+
+JSON FORMAT:
 {
-"teacher": "Warm greeting + COMPLETE answers to ALL ${qCount} question(s) with detailed explanation, steps, examples in ${selectedLangName}. Number each answer as ⭐ प्रश्न 1, ⭐ प्रश्न 2, etc.",
-"simple": "Short 2-3 line overall summary in ${selectedLangName}",
-"steps": "Numbered step-by-step solution for each question in ${selectedLangName}",
-"example": "One real-life relatable example or story in ${selectedLangName}",
-"practice": "3 practice questions for the student in ${selectedLangName}",
-"summary": "One fun motivational closing line in ${selectedLangName}"
+"teacher": "[Your actual warm greeting + real complete answer(s) to the question(s) here, in ${selectedLangName}]",
+"simple": "[Actual short 2-3 line summary of the answer, in ${selectedLangName}]",
+"steps": "[Actual numbered step-by-step solution, in ${selectedLangName}]",
+"example": "[Actual real-life example or story related to the topic, in ${selectedLangName}]",
+"practice": "[3 actual practice questions on this topic, in ${selectedLangName}]",
+"summary": "[One actual fun motivational line, in ${selectedLangName}]"
 }`;
 
       let rawText;
