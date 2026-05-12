@@ -42,7 +42,7 @@ async function callGemini(question, imageBase64, systemPrompt, langName) {
   for (let retry = 0; retry < MAX_RETRIES; retry++) {
     for (let i = 0; i < GEMINI_KEYS.length; i++) {
       const gKey = GEMINI_KEYS[(geminiKeyIdx + i) % GEMINI_KEYS.length];
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${gKey}`;
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${gKey}`;
 
       const parts = [];
       if (imageBase64) {
