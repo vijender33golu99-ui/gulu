@@ -98,6 +98,16 @@ Answer in ${langName}.`;
       }
     }
   }
+    // If all models failed, let's fetch what models are ACTUALLY available for this key
+  try {
+    const listResp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_KEYS[0]}`);
+    if (listResp.ok) {
+      const listData = await listResp.json();
+      const modelNames = listData.models.map(m => m.name.replace('models/', '')).filter(n => n.includes('gemini')).join(', ');
+      return { success: false, error: `Key Error: Ye models aapki key me available hain: ${modelNames}` };
+    }
+  } catch(e) {}
+
   return { success: false, error: lastError };
 }
 
