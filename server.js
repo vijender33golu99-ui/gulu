@@ -175,6 +175,27 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', gemini_keys: GEMINI_KEYS.length, groq_keys: GROQ_KEYS.length });
 });
 
+// Diagnostic: fetch which models are available for this key
+app.get('/api/models', async (req, res) => {
+  if (GEMINI_KEYS.length === 0) return res.json({ error: 'No Gemini keys loaded' });
+  try {
+    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_KEYS[0]}&pageSize=50`);
+    const data = await resp.json();
+    if (data.models) {
+      const geminiModels = data.models
+        .filter(m => m.name.includes('gemini'))
+        .map(m => ({
+          name: m.name.replace('models/', ''),
+          methods: m.supportedGenerationMethods || []
+        }));
+      return res.json({ available_models: geminiModels });
+    }
+    return res.json({ raw: data });
+  } catch (e) {
+    return res.json({ error: e.message });
+  }
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
