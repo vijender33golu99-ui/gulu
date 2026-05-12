@@ -73,16 +73,17 @@ async function callGemini(question, imageBase64, systemPrompt, langName) {
           continue; // Try next key
         }
 
-        if (resp.ok) {
+                if (resp.ok) {
           const gData = await resp.json();
           let rawText = gData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
           if (rawText.length > 5) {
-            // Success, update key index and return
             geminiKeyIdx = (geminiKeyIdx + i) % GEMINI_KEYS.length;
             return { success: true, text: rawText };
           }
         } else {
-          lastError = `API Error ${resp.status}`;
+          const errBody = await resp.text();
+          lastError = `API Error ${resp.status} - ${errBody}`;
+          console.error('Gemini Error Body:', errBody);
         }
       } catch (e) {
         lastError = e.message;
