@@ -32,17 +32,17 @@ console.log(`🔑 Groq keys loaded:   ${GROQ_KEYS.length}`);
 // Delay function for Rate Limit Handling (Retry system)
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Helper function to call Gemini API with retry logic
+// Helper function to call Gemini API with retry logic and model fallback
 async function callGemini(question, imageBase64, systemPrompt, langName) {
   if (GEMINI_KEYS.length === 0) return { success: false, error: 'No Gemini keys' };
 
-  const MAX_RETRIES = 3;
+  const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'];
   let lastError = null;
 
-  for (let retry = 0; retry < MAX_RETRIES; retry++) {
+  for (const model of modelsToTry) {
     for (let i = 0; i < GEMINI_KEYS.length; i++) {
       const gKey = GEMINI_KEYS[(geminiKeyIdx + i) % GEMINI_KEYS.length];
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${gKey}`;
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${gKey}`;
 
       const parts = [];
       if (imageBase64) {
@@ -51,7 +51,9 @@ async function callGemini(question, imageBase64, systemPrompt, langName) {
         parts.push({ inlineData: { mimeType: 'image/jpeg', data: base64Data } });
       }
       
-      const userMsg = (question || 'Please answer in detail.') + `\n\nAnswer in ${langName}. Use JSON format if requested.`;
+      const userMsg = (question || 'Please answer in detail.') + `
+
+Answer in ${langName}.`;
       parts.push({ text: userMsg });
 
       try {
@@ -61,20 +63,20 @@ async function callGemini(question, imageBase64, systemPrompt, langName) {
           body: JSON.stringify({
             system_instruction: { parts: [{ text: systemPrompt }] },
             contents: [{ role: 'user', parts }],
-            generationConfig: { temperature: 0.4 } // Regular text output (or JSON if prompt asks)
+            generationConfig: { temperature: 0.4 }
           }),
           timeout: 60000
         });
 
-                if (resp.status === 429) {
+        if (resp.status === 429) {
           const errBody = await resp.text();
-          console.warn(`⚠️ Rate limit hit for Gemini Key. Retrying... Body: ${errBody}`);
-          await sleep(5000); // Wait 5 seconds before retrying
-          lastError = `Rate Limit (429) - ${errBody.substring(0, 50)}`;
-          continue; // Try next key
+          console.warn(`⚠️ Rate limit for ${model}. Body: ${errBody}`);
+          lastError = `Rate Limit 429 on ${model} - ${errBody.substring(0, 50)}`;
+          // We don't sleep anymore, we just try the next key or next model immediately!
+          continue; 
         }
 
-                if (resp.ok) {
+        if (resp.ok) {
           const gData = await resp.json();
           let rawText = gData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
           if (rawText.length > 5) {
@@ -83,17 +85,17 @@ async function callGemini(question, imageBase64, systemPrompt, langName) {
           }
         } else {
           const errBody = await resp.text();
-          lastError = `API Error ${resp.status} - ${errBody}`;
-          console.error('Gemini Error Body:', errBody);
+          lastError = `Error ${resp.status} on ${model} - ${errBody}`;
+          console.error(`Gemini Error on ${model}:`, errBody);
+          // If 404 (Not Found), immediately break the key loop and try the NEXT model
+          if (resp.status === 404) {
+            break;
+          }
         }
       } catch (e) {
         lastError = e.message;
         console.error('❌ Gemini Network error:', e.message);
       }
-    }
-    // If all keys failed on this retry, wait 3 seconds before the next retry loop
-    if (retry < MAX_RETRIES - 1) {
-      await sleep(3000);
     }
   }
   return { success: false, error: lastError };
