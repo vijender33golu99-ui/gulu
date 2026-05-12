@@ -42,7 +42,7 @@ async function callGemini(question, imageBase64, systemPrompt, langName) {
   for (let retry = 0; retry < MAX_RETRIES; retry++) {
     for (let i = 0; i < GEMINI_KEYS.length; i++) {
       const gKey = GEMINI_KEYS[(geminiKeyIdx + i) % GEMINI_KEYS.length];
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${gKey}`;
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${gKey}`;
 
       const parts = [];
       if (imageBase64) {
@@ -66,10 +66,11 @@ async function callGemini(question, imageBase64, systemPrompt, langName) {
           timeout: 60000
         });
 
-        if (resp.status === 429) {
-          console.warn(`⚠️ Rate limit hit for Gemini Key. Retrying in 5 seconds...`);
+                if (resp.status === 429) {
+          const errBody = await resp.text();
+          console.warn(`⚠️ Rate limit hit for Gemini Key. Retrying... Body: ${errBody}`);
           await sleep(5000); // Wait 5 seconds before retrying
-          lastError = 'Rate Limit (429)';
+          lastError = `Rate Limit (429) - ${errBody.substring(0, 50)}`;
           continue; // Try next key
         }
 
@@ -136,9 +137,12 @@ app.post('/api/ask', async (req, res) => {
           timeout: 60000
         });
         
-        if (resp.status === 429) {
-          await sleep(2000); // 2 second delay for Groq rate limit
-          continue;
+                if (resp.status === 429) {
+          const errBody = await resp.text();
+          console.warn(`⚠️ Rate limit hit for Gemini Key. Retrying... Body: ${errBody}`);
+          await sleep(5000); // Wait 5 seconds before retrying
+          lastError = `Rate Limit (429) - ${errBody.substring(0, 50)}`;
+          continue; // Try next key
         }
 
         if (resp.ok) {
