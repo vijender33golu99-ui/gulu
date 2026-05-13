@@ -2713,6 +2713,7 @@
     // 🔐 API keys ab server par safe hain — yahaan koi key nahi hai!
     // Saari AI requests is backend URL par jayengi:
     const BACKEND_URL = 'https://gulu-r5pi.onrender.com/api/ask'; // Render backend
+    const TAWK_AI_URL = 'https://gulu-r5pi.onrender.com/api/tawk-ai'; // Tawk AI endpoint
 
 
 
@@ -4909,7 +4910,7 @@ RULES:
 
         console.log('🚀 Sending request to /api/tawk-ai');
 
-        const response = await fetch('/api/tawk-ai', {
+        const response = await fetch(TAWK_AI_URL, {
           method: 'POST',
           headers: {
 
