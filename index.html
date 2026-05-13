@@ -4908,9 +4908,10 @@ RULES:
 
         console.log('🚀 Testing /api/tawk-ai');
 
-        const response = await fetch('http://localhost:3000/api/tawk-ai', {
+        const response = await fetch('/api/tawk-ai', {
           method: 'POST',
           headers: {
+
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
