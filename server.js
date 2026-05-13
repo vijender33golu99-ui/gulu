@@ -412,14 +412,16 @@ app.post('/api/math', async (req, res) => {
   return app._router.handle({ ...req, url: '/api/ask', method: 'POST' }, res, () => res.status(500).json({ error: 'Internal routing error' }));
 });
 
-// ── Static Files (AFTER all API routes — prevents shadowing) ─
-app.use(express.static(__dirname));
+// ── Static Files (safe absolute path for Render) ─────────────
+const rootDir = path.resolve();
+app.use(express.static(rootDir));
 
-// ── Catch-all (must remain LAST — /api/admin/* routes are above) ──
+// ── Catch-all (must remain LAST) ─────────────────────────────
 app.get('*', (req, res) => {
-  // Never intercept API routes
-  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Unknown API route' });
-  res.sendFile(path.join(__dirname, 'index.html'));
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'Unknown API route' });
+  }
+  res.sendFile(path.join(rootDir, 'index.html'));
 });
 
 // ── Start ────────────────────────────────────────────────────
