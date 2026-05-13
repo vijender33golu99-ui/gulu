@@ -373,10 +373,10 @@ app.post('/api/tawk-ai', async (req, res) => {
         messages: [
           { role: 'system', content: 'You are Didi AI, a helpful and fun teacher for VBS Free Tuition.' },
           { role: 'user', content: message }
-        ],
-        response_format: { type: 'json_object' }
+        ]
       })
     });
+
 
     const data = await response.json();
     res.json(data);
