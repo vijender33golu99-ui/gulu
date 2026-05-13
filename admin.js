@@ -7,9 +7,10 @@
 'use strict';
 
 // ── Config ───────────────────────────────────────────────────
-const HEALTH_ENDPOINT    = '/api/health';
-const STATS_ENDPOINT     = '/api/admin/stats';
-const LOGS_ENDPOINT      = '/api/admin/logs';
+const API_BASE           = 'https://gulu-f5pi.onrender.com';
+const HEALTH_ENDPOINT    = `${API_BASE}/api/health`;
+const STATS_ENDPOINT     = `${API_BASE}/api/admin/stats`;
+const LOGS_ENDPOINT      = `${API_BASE}/api/admin/logs`;
 const REFRESH_INTERVAL_MS = 10000;
 
 // ── Provider display config ──────────────────────────────────
@@ -205,6 +206,10 @@ async function fetchHealth() {
   try {
     const res  = await fetch(HEALTH_ENDPOINT, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const type = res.headers.get('content-type') || '';
+    if (!type.includes('application/json')) {
+      throw new Error('Non-JSON response — server may be waking up');
+    }
     const data = await res.json();
     consecutiveFails = 0;
     renderHealth(data);
