@@ -5,15 +5,15 @@
 // ============================================================
 
 const express = require('express');
-const cors    = require('cors');
-const fetch   = require('node-fetch');
-const path    = require('path');
+const cors = require('cors');
+const fetch = require('node-fetch');
+const path = require('path');
 const mongoose = require('mongoose');
 const Tesseract = require('tesseract.js');
 const nvidiaService = require('./services/nvidiaService');
 require('dotenv').config();
 
-const app  = express();
+const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ── Middleware ───────────────────────────────────────────────
@@ -25,9 +25,9 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.static(__dirname));
 
 // ── ENV se API Keys lo ──────────────────────────────────────
-const NVIDIA_KEY   = process.env.NVIDIA_API_KEY;
-const DEEPSEEK_KEY    = process.env.DEEPSEEK_API_KEY;
-const OPENROUTER_KEY  = process.env.OPENROUTER_API_KEY;
+const NVIDIA_KEY = process.env.NVIDIA_API_KEY;
+const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY;
+const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
 
 const GEMINI_KEYS = (process.env.GEMINI_API_KEYS || '')
   .split(',')
@@ -40,14 +40,14 @@ const GROQ_KEYS = (process.env.GROQ_API_KEYS || '')
   .filter(k => k && k.startsWith('gsk_'));
 
 let geminiKeyIdx = 0;
-let groqKeyIdx   = 0;
+let groqKeyIdx = 0;
 
 console.log(`✅ Server start ho raha hai...`);
-console.log(`🔑 NVIDIA key status:      ${NVIDIA_KEY      ? 'Loaded' : 'Not Found'}`);
-console.log(`🔑 DeepSeek key status:    ${DEEPSEEK_KEY    ? 'Loaded' : 'Not Found'}`);
+console.log(`🔑 NVIDIA key status:      ${NVIDIA_KEY ? 'Loaded' : 'Not Found'}`);
+console.log(`🔑 DeepSeek key status:    ${DEEPSEEK_KEY ? 'Loaded' : 'Not Found'}`);
 console.log(`🔑 Gemini keys loaded:     ${GEMINI_KEYS.length}`);
 console.log(`🔑 Groq keys loaded:       ${GROQ_KEYS.length}`);
-console.log(`🔑 OpenRouter key status:  ${OPENROUTER_KEY  ? 'Loaded' : 'Not Found'}`);
+console.log(`🔑 OpenRouter key status:  ${OPENROUTER_KEY ? 'Loaded' : 'Not Found'}`);
 
 // ── MongoDB Connection ────────────────────────────────────────
 if (process.env.MONGODB_URI) {
@@ -60,9 +60,9 @@ if (process.env.MONGODB_URI) {
 
 // ── AI Cache Schema ───────────────────────────────────────────
 const aiCacheSchema = new mongoose.Schema({
-  question:  { type: String, required: true },
-  answer:    { type: String, required: true },
-  createdAt: { type: Date,   default: Date.now }
+  question: { type: String, required: true },
+  answer: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now }
 });
 
 const AiCache = mongoose.models.AiCache || mongoose.model('AiCache', aiCacheSchema);
@@ -70,14 +70,14 @@ const AiCache = mongoose.models.AiCache || mongoose.model('AiCache', aiCacheSche
 // ── Health Check ─────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   res.json({
-    status:           'ok',
-    nvidia_key:       !!NVIDIA_KEY,
-    deepseek_key:     !!DEEPSEEK_KEY,
-    gemini_keys:      GEMINI_KEYS.length,
-    groq_keys:        GROQ_KEYS.length,
-    openrouter_key:   !!OPENROUTER_KEY,
-    mongodb:          mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    timestamp:        new Date().toISOString()
+    status: 'ok',
+    nvidia_key: !!NVIDIA_KEY,
+    deepseek_key: !!DEEPSEEK_KEY,
+    gemini_keys: GEMINI_KEYS.length,
+    groq_keys: GROQ_KEYS.length,
+    openrouter_key: !!OPENROUTER_KEY,
+    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -91,8 +91,8 @@ app.post('/api/ask', async (req, res) => {
     return res.status(400).json({ error: 'Sawaal ya image chahiye!' });
   }
 
-  let rawText      = '';
-  let apiSuccess   = false;
+  let rawText = '';
+  let apiSuccess = false;
   let lastErrorMsg = 'API se connection nahi hua';
 
   // ── MongoDB Cache Lookup (text questions only) ─────────────
@@ -117,7 +117,7 @@ app.post('/api/ask', async (req, res) => {
       console.log('🔍 OCR START — extracting text from image...');
       const imageBuffer = Buffer.from(imageBase64, 'base64');
       const { data: { text } } = await Tesseract.recognize(imageBuffer, 'eng+hin', {
-        logger: () => {}   // suppress per-step logs
+        logger: () => { }   // suppress per-step logs
       });
       ocrText = (text || '').trim();
       if (ocrText.length > 3) {
@@ -159,14 +159,14 @@ ${ocrText}`
           model: useCase,
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user',   content: userMsg }
+            { role: 'user', content: userMsg }
           ],
           response_format: { type: 'json_object' }
         });
       }
 
       if (result && result.success) {
-        rawText    = result.content;
+        rawText = result.content;
         apiSuccess = true;
         console.log('✅ NVIDIA API success');
       } else {
@@ -188,17 +188,17 @@ ${ocrText}`
         + `\n\nAnswer in ${selectedLangName}. Return JSON format.`;
 
       const resp = await fetch('https://api.deepseek.com/v1/chat/completions', {
-        method:  'POST',
+        method: 'POST',
         headers: {
-          'Content-Type':  'application/json',
+          'Content-Type': 'application/json',
           'Authorization': 'Bearer ' + DEEPSEEK_KEY
         },
         body: JSON.stringify({
-          model:           'deepseek-chat',
+          model: 'deepseek-chat',
           response_format: { type: 'json_object' },
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user',   content: userMsg }
+            { role: 'user', content: userMsg }
           ],
           temperature: 0.4
         }),
@@ -228,9 +228,9 @@ ${ocrText}`
   // ── PRIORITY 2: Gemini API ─────────────────────────────────
   if (!apiSuccess && GEMINI_KEYS.length > 0) {
     for (let i = 0; i < GEMINI_KEYS.length; i++) {
-      const gKey        = GEMINI_KEYS[(geminiKeyIdx + i) % GEMINI_KEYS.length];
+      const gKey = GEMINI_KEYS[(geminiKeyIdx + i) % GEMINI_KEYS.length];
       const geminiModel = 'gemini-2.0-flash';
-      const geminiUrl   = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${gKey}`;
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${gKey}`;
 
       const parts = [];
       if (imageBase64) {
@@ -241,12 +241,12 @@ ${ocrText}`
 
       try {
         const resp = await fetch(geminiUrl, {
-          method:  'POST',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({
+          body: JSON.stringify({
             system_instruction: { parts: [{ text: systemPrompt }] },
-            contents:           [{ role: 'user', parts }],
-            generationConfig:   { temperature: 0.4, responseMimeType: 'application/json' }
+            contents: [{ role: 'user', parts }],
+            generationConfig: { temperature: 0.4, responseMimeType: 'application/json' }
           }),
           timeout: 60000
         });
@@ -255,7 +255,7 @@ ${ocrText}`
           const gData = await resp.json();
           rawText = gData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
           if (rawText.length > 5) {
-            apiSuccess   = true;
+            apiSuccess = true;
             geminiKeyIdx = (geminiKeyIdx + i) % GEMINI_KEYS.length;
             console.log('✅ Gemini API success');
             break;
@@ -274,26 +274,26 @@ ${ocrText}`
       const keyToUse = GROQ_KEYS[(groqKeyIdx + i) % GROQ_KEYS.length];
       try {
         const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method:  'POST',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + keyToUse },
-          body:    JSON.stringify({
-            model:           imageBase64 ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile',
+          body: JSON.stringify({
+            model: imageBase64 ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile',
             response_format: { type: 'json_object' },
             messages: [
               { role: 'system', content: systemPrompt },
-              { role: 'user',   content: enrichedQuestion + `\n\nAnswer in ${selectedLangName}. JSON.` }
+              { role: 'user', content: enrichedQuestion + `\n\nAnswer in ${selectedLangName}. JSON.` }
             ]
           }),
           timeout: 60000
         });
         if (resp.ok) {
           const data = await resp.json();
-          rawText    = data?.choices?.[0]?.message?.content || '';
+          rawText = data?.choices?.[0]?.message?.content || '';
           apiSuccess = true;
           console.log('✅ Groq API success');
           break;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
   }
 
@@ -305,19 +305,19 @@ ${ocrText}`
         + `\n\nAnswer in ${selectedLangName}. Return JSON format.`;
 
       const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method:  'POST',
+        method: 'POST',
         headers: {
-          'Content-Type':  'application/json',
+          'Content-Type': 'application/json',
           'Authorization': 'Bearer ' + OPENROUTER_KEY,
-          'HTTP-Referer':  'https://vbstuition.com',
-          'X-Title':       'VBS Free Tuition'
+          'HTTP-Referer': 'https://vbstuition.com',
+          'X-Title': 'VBS Free Tuition'
         },
         body: JSON.stringify({
-          model:           'deepseek/deepseek-chat-v3-0324:free',
+          model: 'deepseek/deepseek-chat-v3-0324:free',
           response_format: { type: 'json_object' },
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user',   content: userMsg }
+            { role: 'user', content: userMsg }
           ],
           temperature: 0.4
         }),
@@ -356,7 +356,38 @@ ${ocrText}`
   return res.json({ success: true, rawText });
 });
 
+// ── Tawk AI Endpoint ──────────────────────────────────────────
+app.post('/api/tawk-ai', async (req, res) => {
+  const { message, visitor } = req.body;
+  if (!message) return res.status(400).json({ error: 'Message exists validation failed' });
+
+  try {
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + DEEPSEEK_KEY
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: 'You are Didi AI, a helpful and fun teacher for VBS Free Tuition.' },
+          { role: 'user', content: message }
+        ],
+        response_format: { type: 'json_object' }
+      })
+    });
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ── Math Endpoint ────────────────────────────────────────────
+
+
 app.post('/api/math', async (req, res) => {
   return app._router.handle({ ...req, url: '/api/ask', method: 'POST' }, res, () => res.status(500).json({ error: 'Internal routing error' }));
 });
