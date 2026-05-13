@@ -48,14 +48,22 @@ console.log(`🔑 Gemini keys loaded:     ${GEMINI_KEYS.length}`);
 console.log(`🔑 Groq keys loaded:       ${GROQ_KEYS.length}`);
 console.log(`🔑 OpenRouter key status:  ${OPENROUTER_KEY ? 'Loaded' : 'Not Found'}`);
 
-// ── MongoDB Connection ────────────────────────────────────────
-if (process.env.MONGODB_URI) {
-  mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('✅ MongoDB connected successfully'))
-    .catch(err => console.error('❌ MongoDB connection error:', err.message));
-} else {
-  console.warn('⚠️  MONGODB_URI not set — cache disabled');
+// ── MongoDB Connection (NON-BLOCKING — server starts regardless) ──
+try {
+  if (process.env.MONGODB_URI) {
+    mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000,  // fail fast if Atlas unreachable
+      connectTimeoutMS: 5000
+    })
+      .then(() => console.log('✅ MongoDB connected successfully'))
+      .catch(err => console.error('❌ MongoDB connection error (cache disabled):', err.message));
+  } else {
+    console.warn('⚠️  MONGODB_URI not set — cache disabled');
+  }
+} catch (e) {
+  console.error('❌ MongoDB init error (non-fatal):', e.message);
 }
+// Express routes and app.listen always reached regardless of MongoDB state
 
 // ── AI Cache Schema ───────────────────────────────────────────
 const aiCacheSchema = new mongoose.Schema({
