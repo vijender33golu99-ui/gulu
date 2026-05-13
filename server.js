@@ -357,11 +357,15 @@ ${ocrText}`
 });
 
 // ── Tawk AI Endpoint ──────────────────────────────────────────
-console.log('✅ Tawk AI route registered');
 app.post('/api/tawk-ai', async (req, res) => {
   const { message, visitor } = req.body;
 
   if (!message) return res.status(400).json({ error: 'Message exists validation failed' });
+
+  if (!DEEPSEEK_KEY) {
+    console.error('❌ Tawk AI: DEEPSEEK_KEY not set');
+    return res.status(500).json({ error: 'DeepSeek API key not configured' });
+  }
 
   try {
     console.log('📨 Incoming Tawk AI message:', message);
@@ -378,20 +382,22 @@ app.post('/api/tawk-ai', async (req, res) => {
           { role: 'system', content: 'You are Didi AI, a helpful and fun teacher for VBS Free Tuition.' },
           { role: 'user', content: message }
         ]
-      })
+      }),
+      timeout: 60000
     });
     console.log('📡 DeepSeek status:', response.status);
 
     const data = await response.json();
-    console.log('🧠 DeepSeek raw response:', data);
+    console.log('🧠 DeepSeek raw response:', JSON.stringify(data).slice(0, 200));
 
-    res.json(data);
+    const reply = data?.choices?.[0]?.message?.content || '';
+    res.json({ reply });
   } catch (error) {
     console.error('❌ Tawk AI route error:', error);
-
     res.status(500).json({ error: error.message });
   }
 });
+console.log('✅ Tawk AI route registered');
 
 // ── Math Endpoint ────────────────────────────────────────────
 
