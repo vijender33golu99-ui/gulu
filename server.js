@@ -357,45 +357,211 @@ ${ocrText}`
 });
 
 // ── Tawk AI Endpoint ──────────────────────────────────────────
+// Helper: returns true for status codes that mean "hard failure / no credit"
+function isTawkHardFail(status) {
+  return [401, 402, 403, 429].includes(status);
+}
+
+// Helper: returns true when an error-body string signals quota / auth issues
+function isTawkQuotaError(bodyText) {
+  const t = (bodyText || '').toLowerCase();
+  return t.includes('insufficient balance') ||
+    t.includes('invalid api key') ||
+    t.includes('quota exceeded') ||
+    t.includes('rate limit') ||
+    t.includes('unauthorized') ||
+    t.includes('payment required');
+}
+
 app.post('/api/tawk-ai', async (req, res) => {
   const { message, visitor } = req.body;
 
   if (!message) return res.status(400).json({ error: 'Message exists validation failed' });
 
-  if (!DEEPSEEK_KEY) {
-    console.error('❌ Tawk AI: DEEPSEEK_KEY not set');
-    return res.status(500).json({ error: 'DeepSeek API key not configured' });
+  console.log('📨 Incoming Tawk AI message:', message);
+
+  const SYSTEM_PROMPT = 'You are Didi AI, a helpful and fun teacher for VBS Free Tuition.';
+  const failures = []; // collect per-provider error details
+
+  // ── PROVIDER 1: DeepSeek ─────────────────────────────────────
+  if (DEEPSEEK_KEY) {
+    const providerName = 'DeepSeek';
+    console.log('🔄 Trying provider:', providerName);
+    try {
+      const resp = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + DEEPSEEK_KEY },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: message }
+          ]
+        }),
+        timeout: 60000
+      });
+      console.log('📡 DeepSeek status:', resp.status);
+      if (resp.ok) {
+        const data = await resp.json();
+        console.log('🧠 DeepSeek raw response:', JSON.stringify(data).slice(0, 200));
+        const reply = data?.choices?.[0]?.message?.content || '';
+        if (reply) {
+          console.log('✅ Provider success:', providerName);
+          return res.json({ success: true, reply });
+        }
+      }
+      const errBody = await resp.text().catch(() => '');
+      const errMsg = `HTTP ${resp.status}: ${errBody.slice(0, 120)}`;
+      console.log('❌ Provider failed:', providerName, errMsg);
+      failures.push({ provider: providerName, error: errMsg });
+    } catch (e) {
+      console.log('❌ Provider failed:', providerName, e.message);
+      failures.push({ provider: providerName, error: e.message });
+    }
   }
 
-  try {
-    console.log('📨 Incoming Tawk AI message:', message);
-
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + DEEPSEEK_KEY
-      },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages: [
-          { role: 'system', content: 'You are Didi AI, a helpful and fun teacher for VBS Free Tuition.' },
-          { role: 'user', content: message }
-        ]
-      }),
-      timeout: 60000
-    });
-    console.log('📡 DeepSeek status:', response.status);
-
-    const data = await response.json();
-    console.log('🧠 DeepSeek raw response:', JSON.stringify(data).slice(0, 200));
-
-    const reply = data?.choices?.[0]?.message?.content || '';
-    res.json({ reply });
-  } catch (error) {
-    console.error('❌ Tawk AI route error:', error);
-    res.status(500).json({ error: error.message });
+  // ── PROVIDER 2: Groq ─────────────────────────────────────────
+  if (GROQ_KEYS.length > 0) {
+    const providerName = 'Groq';
+    console.log('🔄 Trying provider:', providerName);
+    for (let i = 0; i < GROQ_KEYS.length; i++) {
+      const key = GROQ_KEYS[(groqKeyIdx + i) % GROQ_KEYS.length];
+      try {
+        const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+              { role: 'system', content: SYSTEM_PROMPT },
+              { role: 'user', content: message }
+            ]
+          }),
+          timeout: 60000
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const reply = data?.choices?.[0]?.message?.content || '';
+          if (reply) {
+            groqKeyIdx = (groqKeyIdx + i) % GROQ_KEYS.length;
+            console.log('✅ Provider success:', providerName);
+            return res.json({ success: true, reply });
+          }
+        }
+        const errBody = await resp.text().catch(() => '');
+        const errMsg = `HTTP ${resp.status}: ${errBody.slice(0, 120)}`;
+        // If this key is rate-limited/invalid, try the next Groq key
+        if (isTawkHardFail(resp.status) || isTawkQuotaError(errBody)) continue;
+        console.log('❌ Provider failed:', providerName, errMsg);
+        failures.push({ provider: providerName, error: errMsg });
+        break;
+      } catch (e) {
+        console.log('❌ Provider failed:', providerName, e.message);
+        failures.push({ provider: providerName, error: e.message });
+        break;
+      }
+    }
+    // If all Groq keys were cycled through without success, log once
+    if (!failures.find(f => f.provider === providerName)) {
+      const msg = 'All Groq keys exhausted';
+      console.log('❌ Provider failed:', providerName, msg);
+      failures.push({ provider: providerName, error: msg });
+    }
   }
+
+  // ── PROVIDER 3: OpenRouter ───────────────────────────────────
+  if (OPENROUTER_KEY) {
+    const providerName = 'OpenRouter';
+    console.log('🔄 Trying provider:', providerName);
+    try {
+      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + OPENROUTER_KEY,
+          'HTTP-Referer': 'https://vbscomputersystem.in',
+          'X-Title': 'VBS Free Tuition'
+        },
+        body: JSON.stringify({
+          model: 'deepseek/deepseek-chat-v3-0324:free',
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: message }
+          ]
+        }),
+        timeout: 60000
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const reply = data?.choices?.[0]?.message?.content || '';
+        if (reply) {
+          console.log('✅ Provider success:', providerName);
+          return res.json({ success: true, reply });
+        }
+      }
+      const errBody = await resp.text().catch(() => '');
+      const errMsg = `HTTP ${resp.status}: ${errBody.slice(0, 120)}`;
+      console.log('❌ Provider failed:', providerName, errMsg);
+      failures.push({ provider: providerName, error: errMsg });
+    } catch (e) {
+      console.log('❌ Provider failed:', providerName, e.message);
+      failures.push({ provider: providerName, error: e.message });
+    }
+  }
+
+  // ── PROVIDER 4: Gemini ───────────────────────────────────────
+  if (GEMINI_KEYS.length > 0) {
+    const providerName = 'Gemini';
+    console.log('🔄 Trying provider:', providerName);
+    for (let i = 0; i < GEMINI_KEYS.length; i++) {
+      const key = GEMINI_KEYS[(geminiKeyIdx + i) % GEMINI_KEYS.length];
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+            contents: [{ role: 'user', parts: [{ text: message }] }],
+            generationConfig: { temperature: 0.7 }
+          }),
+          timeout: 60000
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          if (reply) {
+            geminiKeyIdx = (geminiKeyIdx + i) % GEMINI_KEYS.length;
+            console.log('✅ Provider success:', providerName);
+            return res.json({ success: true, reply });
+          }
+        }
+        const errBody = await resp.text().catch(() => '');
+        const errMsg = `HTTP ${resp.status}: ${errBody.slice(0, 120)}`;
+        if (isTawkHardFail(resp.status) || isTawkQuotaError(errBody)) continue;
+        console.log('❌ Provider failed:', providerName, errMsg);
+        failures.push({ provider: providerName, error: errMsg });
+        break;
+      } catch (e) {
+        console.log('❌ Provider failed:', providerName, e.message);
+        failures.push({ provider: providerName, error: e.message });
+        break;
+      }
+    }
+    if (!failures.find(f => f.provider === providerName)) {
+      const msg = 'All Gemini keys exhausted';
+      console.log('❌ Provider failed:', providerName, msg);
+      failures.push({ provider: providerName, error: msg });
+    }
+  }
+
+  // ── All providers failed ──────────────────────────────────────
+  console.error('❌ Tawk AI route error: all providers failed', JSON.stringify(failures));
+  return res.status(503).json({
+    error: true,
+    message: 'All AI providers failed. Please try again later.',
+    failures
+  });
 });
 console.log('✅ Tawk AI route registered');
 
