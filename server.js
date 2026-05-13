@@ -42,7 +42,7 @@ async function callGemini(question, imageBase64, systemPrompt, langName) {
   for (const model of modelsToTry) {
     for (let i = 0; i < GEMINI_KEYS.length; i++) {
       const gKey = GEMINI_KEYS[(geminiKeyIdx + i) % GEMINI_KEYS.length];
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${gKey}`;
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${gKey}`;
 
       const parts = [];
       if (imageBase64) {
@@ -61,7 +61,7 @@ Answer in ${langName}.`;
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            systemInstruction: { parts: [{ text: systemPrompt }] },
+            system_instruction: { parts: [{ text: systemPrompt }] },
             contents: [{ role: 'user', parts }],
             generationConfig: { temperature: 0.4 }
           }),
