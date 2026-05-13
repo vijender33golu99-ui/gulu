@@ -1600,7 +1600,12 @@ JSON FORMAT:
 
       let parsed;
       try {
-        let clean = rawText.trim()
+        const _safeRaw1604 = typeof rawText === 'string'
+          ? rawText
+          : Array.isArray(rawText)
+          ? rawText.join('\n')
+          : rawText?.toString?.() || '';
+        let clean = _safeRaw1604.trim()
           .replace(/^```json\s*/i,'').replace(/^```\s*/,'')
           .replace(/\s*```$/,'').trim();
         const m = clean.match(/\{[\s\S]*\}/);
@@ -1619,7 +1624,8 @@ JSON FORMAT:
           } else {
             regex = new RegExp(`"${f}"\\s*:\\s*"([\\s\\S]*?)"\\s*\\}`, 'i');
           }
-          const match = rawText.match(regex);
+          const _safeRaw1624 = typeof rawText === 'string' ? rawText : rawText?.toString?.() || '';
+          const match = _safeRaw1624.match(regex);
           if(match) {
             parsed[f] = match[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\t/g, '\t');
           }
@@ -1628,7 +1634,8 @@ JSON FORMAT:
         if(!parsed.teacher) {
           fields.forEach(f => {
             const r = new RegExp(`"${f}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`,'i');
-            const match = rawText.match(r);
+            const _safeRaw1633 = typeof rawText === 'string' ? rawText : rawText?.toString?.() || '';
+            const match = _safeRaw1633.match(r);
             if(match && !parsed[f]) {
               parsed[f] = match[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
             }
@@ -1636,14 +1643,24 @@ JSON FORMAT:
         }
 
         if(!parsed.teacher) {
-          let text = rawText.replace(/```json|```/gi, '').replace(/[{}]/g, '').trim();
+          const _safeRaw1639 = typeof rawText === 'string'
+            ? rawText
+            : Array.isArray(rawText)
+            ? rawText.join('\n')
+            : rawText?.toString?.() || '';
+          let text = _safeRaw1639.replace(/```json|```/gi, '').replace(/[{}]/g, '').trim();
           text = text.replace(/"teacher"\s*:\s*/i, '').replace(/"simple"\s*:\s*.*/i, '');
           parsed.teacher = text.substring(0, 5000).trim() || 'जवाब मिला लेकिन format सही नहीं था। कृपया दोबारा पूछें।';
         }
       }
 
       if(!parsed.teacher || parsed.teacher.trim().length < 5) {
-        parsed.teacher = rawText.replace(/```json|```|[{}"]/gi, '').trim().substring(0, 5000) || 'कृपया दोबारा पूछें।';
+        const _safeRaw1646 = typeof rawText === 'string'
+          ? rawText
+          : Array.isArray(rawText)
+          ? rawText.join('\n')
+          : rawText?.toString?.() || '';
+        parsed.teacher = _safeRaw1646.replace(/```json|```|[{}"]/gi, '').trim().substring(0, 5000) || 'कृपया दोबारा पूछें।';
       }
 
       // NO COMBINING FRAGMENTS — Use the full teacher answer
@@ -1721,7 +1738,12 @@ JSON FORMAT:
   }
 
   function formatText(text){
-    return String(text || '')
+    const _safeText1728 = typeof text === 'string'
+      ? text
+      : Array.isArray(text)
+      ? text.join('\n')
+      : text?.toString?.() || '';
+    return _safeText1728
       .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
       .replace(/Step (\d+):/gi,'<strong style="color:#34D399">Step $1:</strong>')
       .replace(/(\d+)\.\s/g,'<strong style="color:#818CF8">$1. </strong>')
@@ -1895,8 +1917,13 @@ JSON FORMAT:
   function applyHinglish(text) {
     if(currentLang === 'english') return text;
     if(currentLang !== 'hindi') return text; // Only convert for Hindi mode
+    const _safeText1899 = typeof text === 'string'
+      ? text
+      : Array.isArray(text)
+      ? text.join('\n')
+      : text?.toString?.() || '';
     // Replace standalone English words that are common Hindi-transliterated words
-    return text.replace(/\b([A-Za-z]{3,})\b/g, (match) => {
+    return _safeText1899.replace(/\b([A-Za-z]{3,})\b/g, (match) => {
       return hinglishMap[match.toLowerCase()] || match;
     });
   }
@@ -2944,7 +2971,12 @@ RULES:
       const mathServerData = await mathServerResp.json();
       if (!mathServerResp.ok || mathServerData.error) throw new Error(mathServerData.message || 'Math API Error');
 
-      let rawText = (mathServerData.rawText || '').trim();
+      const _rawMath2960 = mathServerData.rawText;
+      let rawText = (typeof _rawMath2960 === 'string'
+        ? _rawMath2960
+        : Array.isArray(_rawMath2960)
+        ? _rawMath2960.join('\n')
+        : _rawMath2960?.toString?.() || '').trim();
       let mathData = null;
       try {
         const mObj = rawText.match(/\{[\s\S]*\}/);
