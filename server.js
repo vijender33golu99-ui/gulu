@@ -376,11 +376,20 @@ function isTawkQuotaError(bodyText) {
 app.post('/api/tawk-ai', async (req, res) => {
   const { message, visitor } = req.body;
 
-  if (!message) return res.status(400).json({ error: 'Message exists validation failed' });
+  // ── Strict input validation ───────────────────────────────────
+  if (!message || typeof message !== 'string' || message.trim().length <= 2) {
+    console.warn('⚠️ Tawk AI: invalid or empty message rejected:', JSON.stringify(message));
+    return res.status(400).json({ success: false, error: 'Invalid message' });
+  }
 
-  console.log('📨 Incoming Tawk AI message:', message);
+  const cleanMessage = message.trim();
+  console.log('📨 Incoming Tawk AI message:', cleanMessage);
 
-  const SYSTEM_PROMPT = 'You are Didi AI, a helpful and fun teacher for VBS Free Tuition.';
+  const SYSTEM_PROMPT =
+    'You are Didi AI, a helpful tutor for VBS Free Tuition. ' +
+    'Reply ONLY when the user asks a clear educational question. ' +
+    'If the message is unclear or not a question, ask the user to clarify briefly. ' +
+    'Do NOT auto-greet or generate answers without a real user question.';
   const failures = []; // collect per-provider error details
 
   // ── PROVIDER 1: DeepSeek ─────────────────────────────────────
@@ -395,7 +404,7 @@ app.post('/api/tawk-ai', async (req, res) => {
           model: 'deepseek-chat',
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: message }
+            { role: 'user', content: cleanMessage }
           ]
         }),
         timeout: 60000
@@ -434,7 +443,7 @@ app.post('/api/tawk-ai', async (req, res) => {
             model: 'llama-3.3-70b-versatile',
             messages: [
               { role: 'system', content: SYSTEM_PROMPT },
-              { role: 'user', content: message }
+              { role: 'user', content: cleanMessage }
             ]
           }),
           timeout: 60000
@@ -486,7 +495,7 @@ app.post('/api/tawk-ai', async (req, res) => {
           model: 'deepseek/deepseek-chat-v3-0324:free',
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: message }
+            { role: 'user', content: cleanMessage }
           ]
         }),
         timeout: 60000
@@ -522,7 +531,7 @@ app.post('/api/tawk-ai', async (req, res) => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-            contents: [{ role: 'user', parts: [{ text: message }] }],
+            contents: [{ role: 'user', parts: [{ text: cleanMessage }] }],
             generationConfig: { temperature: 0.7 }
           }),
           timeout: 60000

@@ -4904,37 +4904,55 @@ RULES:
   </button>
 
   <script>
-    document.getElementById('testTawkAiBtn').addEventListener('click', async () => {
+    (function () {
+      let tawkAiPending = false; // duplicate-request guard
 
-      try {
+      document.getElementById('testTawkAiBtn').addEventListener('click', async () => {
+        // Prevent simultaneous requests
+        if (tawkAiPending) return;
 
-        console.log('🚀 Sending request to /api/tawk-ai');
+        // Ask user for their question
+        const rawInput = prompt('Apna sawaal likho (Ask your question):');
 
-        const response = await fetch(TAWK_AI_URL, {
-          method: 'POST',
-          headers: {
+        // Frontend validation: null = cancelled, blank/whitespace/too short = invalid
+        if (rawInput === null) return; // user pressed Cancel
+        const trimmed = rawInput.trim();
+        if (trimmed.length <= 2) {
+          alert('Please enter a valid question');
+          return;
+        }
 
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            message: '2 + 2 kitna hota hai?'
-          })
-        });
+        tawkAiPending = true;
+        document.getElementById('testTawkAiBtn').disabled = true;
 
-        const data = await response.json();
+        try {
+          console.log('\ud83d\ude80 Sending request to /api/tawk-ai');
 
-        console.log('✅ AI Response:', data);
+          const response = await fetch(TAWK_AI_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: trimmed })
+          });
 
-        alert(data.reply || 'No reply received');
+          const data = await response.json();
+          console.log('\u2705 AI Response:', data);
 
-      } catch (error) {
-
-        console.error('❌ Test failed:', error);
-
-        alert('Test failed');
-      }
-
-    });
+          if (data.success && data.reply) {
+            alert(data.reply);
+          } else if (data.error) {
+            alert('Error: ' + (data.error || 'Unknown error'));
+          } else {
+            alert('No reply received');
+          }
+        } catch (error) {
+          console.error('\u274c Test failed:', error);
+          alert('Test failed: ' + error.message);
+        } finally {
+          tawkAiPending = false;
+          document.getElementById('testTawkAiBtn').disabled = false;
+        }
+      });
+    })();
   </script>
 </body>
 
