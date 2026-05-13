@@ -357,8 +357,10 @@ ${ocrText}`
 });
 
 // ── Tawk AI Endpoint ──────────────────────────────────────────
+console.log('✅ Tawk AI route registered');
 app.post('/api/tawk-ai', async (req, res) => {
   const { message, visitor } = req.body;
+
   if (!message) return res.status(400).json({ error: 'Message exists validation failed' });
 
   try {
