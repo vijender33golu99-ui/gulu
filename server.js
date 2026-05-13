@@ -1,225 +1,372 @@
+// ============================================================
+//  VBS Free Tuition — SECURE BACKEND SERVER
+//  API keys yahaan safe hain — frontend ko kabhi nahi milte!
+//  Hostinger Node.js par deploy karo
+// ============================================================
+
 const express = require('express');
-const cors = require('cors');
-const fetch = require('node-fetch');
-const path = require('path');
+const cors    = require('cors');
+const fetch   = require('node-fetch');
+const path    = require('path');
+const mongoose = require('mongoose');
+const Tesseract = require('tesseract.js');
+const nvidiaService = require('./services/nvidiaService');
 require('dotenv').config();
 
-const app = express();
+const app  = express();
 const PORT = process.env.PORT || 3000;
 
+// ── Middleware ───────────────────────────────────────────────
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+// ── Static Files ─────────────────────────────────────────────
+// Aapke files root mein hain, isliye '.' use kar rahe hain
 app.use(express.static(__dirname));
 
-// Safely get API keys
+// ── ENV se API Keys lo ──────────────────────────────────────
+const NVIDIA_KEY   = process.env.NVIDIA_API_KEY;
+const DEEPSEEK_KEY    = process.env.DEEPSEEK_API_KEY;
+const OPENROUTER_KEY  = process.env.OPENROUTER_API_KEY;
+
 const GEMINI_KEYS = (process.env.GEMINI_API_KEYS || '')
-  .split(',').map(k => k.trim()).filter(k => k && k.startsWith('AIza'));
+  .split(',')
+  .map(k => k.trim())
+  .filter(k => k && k.startsWith('AIza'));
 
 const GROQ_KEYS = (process.env.GROQ_API_KEYS || '')
-  .split(',').map(k => k.trim()).filter(k => k && k.startsWith('gsk_'));
+  .split(',')
+  .map(k => k.trim())
+  .filter(k => k && k.startsWith('gsk_'));
 
 let geminiKeyIdx = 0;
-let groqKeyIdx = 0;
+let groqKeyIdx   = 0;
 
 console.log(`✅ Server start ho raha hai...`);
-console.log(`🔑 Gemini keys loaded: ${GEMINI_KEYS.length}`);
-console.log(`🔑 Groq keys loaded:   ${GROQ_KEYS.length}`);
+console.log(`🔑 NVIDIA key status:      ${NVIDIA_KEY      ? 'Loaded' : 'Not Found'}`);
+console.log(`🔑 DeepSeek key status:    ${DEEPSEEK_KEY    ? 'Loaded' : 'Not Found'}`);
+console.log(`🔑 Gemini keys loaded:     ${GEMINI_KEYS.length}`);
+console.log(`🔑 Groq keys loaded:       ${GROQ_KEYS.length}`);
+console.log(`🔑 OpenRouter key status:  ${OPENROUTER_KEY  ? 'Loaded' : 'Not Found'}`);
 
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-// ── GROQ (text only, free tier bahut generous hai) ──────────────────────────
-async function callGroq(question, systemPrompt, langName) {
-  if (GROQ_KEYS.length === 0) return { success: false, error: 'No Groq keys' };
-  if (!question) return { success: false, error: 'No question for Groq' };
-
-  for (let i = 0; i < GROQ_KEYS.length; i++) {
-    const keyToUse = GROQ_KEYS[(groqKeyIdx + i) % GROQ_KEYS.length];
-    try {
-      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + keyToUse },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: question + `\n\nAnswer in ${langName}.` }
-          ]
-        }),
-        timeout: 60000
-      });
-
-      if (resp.status === 429) {
-        console.warn(`⚠️ Groq rate limit key ${i + 1}. 3s wait...`);
-        await sleep(3000);
-        continue;
-      }
-
-      if (resp.ok) {
-        const data = await resp.json();
-        const rawText = data?.choices?.[0]?.message?.content || '';
-        if (rawText.length > 5) {
-          groqKeyIdx = (groqKeyIdx + i) % GROQ_KEYS.length;
-          console.log('✅ Groq success');
-          return { success: true, text: rawText };
-        }
-      } else {
-        const errBody = await resp.text();
-        console.error(`Groq Error key ${i+1}:`, resp.status, errBody.substring(0, 100));
-      }
-    } catch (e) {
-      console.error(`❌ Groq network error key ${i+1}:`, e.message);
-    }
-  }
-  return { success: false, error: 'All Groq keys failed' };
+// ── MongoDB Connection ────────────────────────────────────────
+if (process.env.MONGODB_URI) {
+  mongoose.connect(process.env.MONGODB_URI)
+    .then(() => console.log('✅ MongoDB connected successfully'))
+    .catch(err => console.error('❌ MongoDB connection error:', err.message));
+} else {
+  console.warn('⚠️  MONGODB_URI not set — cache disabled');
 }
 
-// ── GEMINI (image + text, limited free quota) ────────────────────────────────
-async function callGemini(question, imageBase64, systemPrompt, langName) {
-  if (GEMINI_KEYS.length === 0) return { success: false, error: 'No Gemini keys' };
+// ── AI Cache Schema ───────────────────────────────────────────
+const aiCacheSchema = new mongoose.Schema({
+  question:  { type: String, required: true },
+  answer:    { type: String, required: true },
+  createdAt: { type: Date,   default: Date.now }
+});
 
-  // 2.0-flash sabse zyada free RPM (15/min), baaki fallback
-  // Sirf 2.0 models — 2.5-flash = 500/day, 2.5-pro = 50/day (jaldi khatam). 2.0-flash = 1500/day
-  const modelsToTry = ['gemini-2.0-flash', 'gemini-2.0-flash-lite'];
-  let lastError = null;
+const AiCache = mongoose.models.AiCache || mongoose.model('AiCache', aiCacheSchema);
 
-  for (const model of modelsToTry) {
-    let allKeysRateLimited = true;
+// ── Health Check ─────────────────────────────────────────────
+app.get('/api/health', (req, res) => {
+  res.json({
+    status:           'ok',
+    nvidia_key:       !!NVIDIA_KEY,
+    deepseek_key:     !!DEEPSEEK_KEY,
+    gemini_keys:      GEMINI_KEYS.length,
+    groq_keys:        GROQ_KEYS.length,
+    openrouter_key:   !!OPENROUTER_KEY,
+    mongodb:          mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    timestamp:        new Date().toISOString()
+  });
+});
 
-    for (let i = 0; i < GEMINI_KEYS.length; i++) {
-      const gKey = GEMINI_KEYS[(geminiKeyIdx + i) % GEMINI_KEYS.length];
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${gKey}`;
-
-      const parts = [];
-      if (imageBase64) {
-        const base64Data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
-        parts.push({ inlineData: { mimeType: 'image/jpeg', data: base64Data } });
-      }
-      parts.push({ text: (question || 'Please answer in detail.') + `\n\nAnswer in ${langName}.` });
-
-      try {
-        const resp = await fetch(geminiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: systemPrompt }] },
-            contents: [{ role: 'user', parts }],
-            generationConfig: { temperature: 0.4 }
-          }),
-          timeout: 60000
-        });
-
-        if (resp.status === 429) {
-          const errBody = await resp.text();
-          lastError = `Rate Limit 429 on ${model} - ${errBody.substring(0, 100)}`;
-          console.warn(`⚠️ Gemini 429: ${model} key ${i+1}. 2s wait...`);
-          await sleep(2000);
-          continue;
-        }
-
-        if (resp.ok) {
-          const gData = await resp.json();
-          const rawText = gData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          if (rawText.length > 5) {
-            geminiKeyIdx = (geminiKeyIdx + i) % GEMINI_KEYS.length;
-            console.log(`✅ Gemini success: ${model}`);
-            return { success: true, text: rawText };
-          }
-          lastError = `Empty response from ${model}`;
-          allKeysRateLimited = false;
-        } else {
-          const errBody = await resp.text();
-          lastError = `Error ${resp.status} on ${model} - ${errBody}`;
-          console.error(`Gemini ${resp.status} on ${model} key ${i+1}`);
-          allKeysRateLimited = false;
-          if (resp.status === 404) break; // model not available, next model try karo
-        }
-      } catch (e) {
-        lastError = e.message;
-        allKeysRateLimited = false;
-        console.error('❌ Gemini network error:', e.message);
-      }
-    }
-
-    if (allKeysRateLimited) {
-      console.warn(`⏳ ${model} sab keys 429. 3s baad agla model...`);
-      await sleep(3000);
-    }
-  }
-  return { success: false, error: lastError };
-}
-
-// ── MAIN ROUTE ────────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+//  MAIN AI ENDPOINT  →  POST /api/ask
+// ══════════════════════════════════════════════════════════════
 app.post('/api/ask', async (req, res) => {
-  const { question, imageBase64, systemPrompt, selectedLangName } = req.body;
+  const { question, imageBase64, systemPrompt, selectedLangName, useCase = 'chatbot' } = req.body;
 
   if (!question && !imageBase64) {
     return res.status(400).json({ error: 'Sawaal ya image chahiye!' });
   }
 
-  const lang = selectedLangName || 'Hindi';
-  const strictSystemPrompt = (systemPrompt || '') +
-    "\n\nCRITICAL INSTRUCTION: You are 'Didi AI', a friendly teacher. Answer the student's question in a single, complete, and easy-to-understand response. Use simple step-by-step Hindi/Hinglish. If it is a Math question, solve it clearly.";
+  let rawText      = '';
+  let apiSuccess   = false;
+  let lastErrorMsg = 'API se connection nahi hua';
 
-  // ── STRATEGY ──────────────────────────────────────────────────────────────
-  // Image hai → sirf Gemini kar sakta hai (vision chahiye)
-  // Text only → pehle Groq (quota unlimited jaise), Gemini sirf backup
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── MongoDB Cache Lookup (text questions only) ─────────────
+  if (!imageBase64 && question && mongoose.connection.readyState === 1) {
+    try {
+      const cached = await AiCache.findOne({ question }).lean();
+      if (cached) {
+        console.log('✅ CACHE HIT — returning cached answer');
+        return res.json({ success: true, rawText: cached.answer, fromCache: true });
+      } else {
+        console.log('🔍 CACHE MISS — proceeding to AI providers');
+      }
+    } catch (cacheErr) {
+      console.warn('⚠️ Cache lookup error (skipping):', cacheErr.message);
+    }
+  }
 
+  // ── OCR: Extract text from image (non-blocking) ─────────────
+  let ocrText = '';
   if (imageBase64) {
-    // IMAGE: Gemini primary, Groq se text-only fallback
-    console.log('🖼️ Image request → Gemini try kar raha hai...');
-    const geminiResult = await callGemini(question, imageBase64, strictSystemPrompt, lang);
-    if (geminiResult.success) return res.json({ success: true, rawText: geminiResult.text });
-
-    // Image samajh nahi aaya, question text hai toh Groq se try karo
-    if (question) {
-      console.log('⚠️ Gemini image failed, Groq se sirf text answer de raha hai...');
-      const groqResult = await callGroq(question, strictSystemPrompt, lang);
-      if (groqResult.success) return res.json({ success: true, rawText: '(Image analysis unavailable)\n\n' + groqResult.text });
+    try {
+      console.log('🔍 OCR START — extracting text from image...');
+      const imageBuffer = Buffer.from(imageBase64, 'base64');
+      const { data: { text } } = await Tesseract.recognize(imageBuffer, 'eng+hin', {
+        logger: () => {}   // suppress per-step logs
+      });
+      ocrText = (text || '').trim();
+      if (ocrText.length > 3) {
+        console.log(`✅ OCR SUCCESS — extracted ${ocrText.length} chars`);
+      } else {
+        console.log('⚠️ OCR SUCCESS but no useful text found — using vision only');
+        ocrText = '';
+      }
+    } catch (ocrErr) {
+      console.warn('❌ OCR FAILED — continuing with vision only:', ocrErr.message);
+      ocrText = '';   // safe fallback — never blocks AI call
     }
-
-    return res.status(503).json({ error: true, message: `All APIs failed. ${geminiResult.error}` });
-
-  } else {
-    // TEXT ONLY: Groq primary (fast + no daily quota), Gemini sirf backup
-    console.log('💬 Text request → Groq try kar raha hai (primary)...');
-    const groqResult = await callGroq(question, strictSystemPrompt, lang);
-    if (groqResult.success) return res.json({ success: true, rawText: groqResult.text });
-
-    console.log('⚠️ Groq failed, Gemini backup try kar raha hai...');
-    const geminiResult = await callGemini(question, null, strictSystemPrompt, lang);
-    if (geminiResult.success) return res.json({ success: true, rawText: geminiResult.text });
-
-    return res.status(503).json({ error: true, message: `All APIs failed. Groq: ${groqResult.error} | Gemini: ${geminiResult.error}` });
   }
-});
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', gemini_keys: GEMINI_KEYS.length, groq_keys: GROQ_KEYS.length });
-});
+  // Build enriched question for AI prompts
+  // If OCR found text, append it so text-only providers can also attempt it
+  const enrichedQuestion = ocrText
+    ? `${question || 'Solve this problem.'}
 
-// Diagnostic: fetch which Gemini models are available
-app.get('/api/models', async (req, res) => {
-  if (GEMINI_KEYS.length === 0) return res.json({ error: 'No Gemini keys loaded' });
-  try {
-    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_KEYS[0]}&pageSize=50`);
-    const data = await resp.json();
-    if (data.models) {
-      const geminiModels = data.models
-        .filter(m => m.name.includes('gemini'))
-        .map(m => ({ name: m.name.replace('models/', ''), methods: m.supportedGenerationMethods || [] }));
-      return res.json({ available_models: geminiModels });
+[OCR Extracted Text from Image]:
+${ocrText}`
+    : (question || '');
+
+  // ── PRIORITY 0: NVIDIA Build API ───────────────────────────────
+  if (NVIDIA_KEY && NVIDIA_KEY !== 'nvapi-your-key-here') {
+    try {
+      console.log('🚀 Trying NVIDIA Build API...');
+      let result;
+
+      if (imageBase64) {
+        const visionPrompt = (enrichedQuestion || 'Explain the image. Solve step by step.')
+          + `\n\nCRITICAL: Answer in ${selectedLangName}. Return JSON format.`;
+        result = await nvidiaService.visionRequest(imageBase64, visionPrompt, systemPrompt);
+      } else {
+        const userMsg = (enrichedQuestion || 'Explain in detail.')
+          + `\n\n[Answer in ${selectedLangName}. Return JSON format.]`;
+
+        result = await nvidiaService.chatCompletion({
+          model: useCase,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user',   content: userMsg }
+          ],
+          response_format: { type: 'json_object' }
+        });
+      }
+
+      if (result && result.success) {
+        rawText    = result.content;
+        apiSuccess = true;
+        console.log('✅ NVIDIA API success');
+      } else {
+        lastErrorMsg = `NVIDIA Error: ${result?.error || 'Unknown error'}`;
+        console.warn('⚠️ NVIDIA API failed:', lastErrorMsg);
+      }
+    } catch (e) {
+      console.error('❌ NVIDIA Integration error:', e.message);
+      lastErrorMsg = e.message;
     }
-    return res.json({ raw: data });
-  } catch (e) {
-    return res.json({ error: e.message });
   }
+
+  // ── PRIORITY 1: DeepSeek V3 ──────────────────────────────
+  // Skips raw image (no vision), but uses OCR-enriched text if available
+  if (!apiSuccess && DEEPSEEK_KEY && (!imageBase64 || ocrText)) {
+    try {
+      console.log('🚀 Trying DeepSeek V3...');
+      const userMsg = (enrichedQuestion || 'Explain in detail.')
+        + `\n\nAnswer in ${selectedLangName}. Return JSON format.`;
+
+      const resp = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': 'Bearer ' + DEEPSEEK_KEY
+        },
+        body: JSON.stringify({
+          model:           'deepseek-chat',
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user',   content: userMsg }
+          ],
+          temperature: 0.4
+        }),
+        timeout: 60000
+      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        rawText = data?.choices?.[0]?.message?.content || '';
+        if (rawText.length > 5) {
+          apiSuccess = true;
+          console.log('✅ DeepSeek V3 success');
+
+          // Unified cache save happens after all providers (see below)
+        }
+      } else {
+        const errBody = await resp.text();
+        lastErrorMsg = `DeepSeek Error ${resp.status}: ${errBody}`;
+        console.warn('⚠️ DeepSeek API failed:', lastErrorMsg);
+      }
+    } catch (e) {
+      console.error('❌ DeepSeek error:', e.message);
+      lastErrorMsg = e.message;
+    }
+  }
+
+  // ── PRIORITY 2: Gemini API ─────────────────────────────────
+  if (!apiSuccess && GEMINI_KEYS.length > 0) {
+    for (let i = 0; i < GEMINI_KEYS.length; i++) {
+      const gKey        = GEMINI_KEYS[(geminiKeyIdx + i) % GEMINI_KEYS.length];
+      const geminiModel = 'gemini-2.0-flash';
+      const geminiUrl   = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${gKey}`;
+
+      const parts = [];
+      if (imageBase64) {
+        parts.push({ inlineData: { mimeType: 'image/jpeg', data: imageBase64 } });
+      }
+      const userMsg = (enrichedQuestion || 'Explain in detail.') + `\n\nAnswer in ${selectedLangName}. JSON format.`;
+      parts.push({ text: userMsg });
+
+      try {
+        const resp = await fetch(geminiUrl, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            system_instruction: { parts: [{ text: systemPrompt }] },
+            contents:           [{ role: 'user', parts }],
+            generationConfig:   { temperature: 0.4, responseMimeType: 'application/json' }
+          }),
+          timeout: 60000
+        });
+
+        if (resp.ok) {
+          const gData = await resp.json();
+          rawText = gData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          if (rawText.length > 5) {
+            apiSuccess   = true;
+            geminiKeyIdx = (geminiKeyIdx + i) % GEMINI_KEYS.length;
+            console.log('✅ Gemini API success');
+            break;
+          }
+        }
+      } catch (e) {
+        console.error('❌ Gemini error:', e.message);
+      }
+    }
+  }
+
+  // ── PRIORITY 3: Groq Fallback ──────────────────────────────
+  if (!apiSuccess && GROQ_KEYS.length > 0) {
+    // ... (Groq logic remains same but simplified for safety)
+    for (let i = 0; i < GROQ_KEYS.length; i++) {
+      const keyToUse = GROQ_KEYS[(groqKeyIdx + i) % GROQ_KEYS.length];
+      try {
+        const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + keyToUse },
+          body:    JSON.stringify({
+            model:           imageBase64 ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile',
+            response_format: { type: 'json_object' },
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user',   content: enrichedQuestion + `\n\nAnswer in ${selectedLangName}. JSON.` }
+            ]
+          }),
+          timeout: 60000
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          rawText    = data?.choices?.[0]?.message?.content || '';
+          apiSuccess = true;
+          console.log('✅ Groq API success');
+          break;
+        }
+      } catch (e) {}
+    }
+  }
+
+  // ── PRIORITY 4: OpenRouter Emergency Fallback ─────────────
+  if (!apiSuccess && OPENROUTER_KEY && !imageBase64) {
+    try {
+      console.log('🚨 OPENROUTER FALLBACK — trying OpenRouter...');
+      const userMsg = (question || 'Explain in detail.')
+        + `\n\nAnswer in ${selectedLangName}. Return JSON format.`;
+
+      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': 'Bearer ' + OPENROUTER_KEY,
+          'HTTP-Referer':  'https://vbstuition.com',
+          'X-Title':       'VBS Free Tuition'
+        },
+        body: JSON.stringify({
+          model:           'deepseek/deepseek-chat-v3-0324:free',
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user',   content: userMsg }
+          ],
+          temperature: 0.4
+        }),
+        timeout: 60000
+      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        rawText = data?.choices?.[0]?.message?.content || '';
+        if (rawText.length > 5) {
+          apiSuccess = true;
+          console.log('✅ OPENROUTER SUCCESS — response received');
+        }
+      } else {
+        const errBody = await resp.text();
+        lastErrorMsg = `OpenRouter Error ${resp.status}: ${errBody}`;
+        console.warn('❌ OPENROUTER FAILED:', lastErrorMsg);
+      }
+    } catch (e) {
+      console.error('❌ OPENROUTER FAILED — exception:', e.message);
+      lastErrorMsg = e.message;
+    }
+  }
+
+  if (!apiSuccess) {
+    return res.status(503).json({ error: true, message: `All APIs failed. Last error: ${lastErrorMsg}` });
+  }
+
+  // ── Unified Cache Save ────────────────────────────────────
+  if (!imageBase64 && question && mongoose.connection.readyState === 1) {
+    AiCache.create({ question, answer: rawText })
+      .then(() => console.log('💾 CACHE SAVED — answer stored in MongoDB'))
+      .catch(err => console.warn('⚠️ Cache save error:', err.message));
+  }
+
+  return res.json({ success: true, rawText });
 });
 
+// ── Math Endpoint ────────────────────────────────────────────
+app.post('/api/math', async (req, res) => {
+  return app._router.handle({ ...req, url: '/api/ask', method: 'POST' }, res, () => res.status(500).json({ error: 'Internal routing error' }));
+});
+
+// ── Catch-all ────────────────────────────────────────────────
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// ── Start ────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
