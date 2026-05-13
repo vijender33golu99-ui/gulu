@@ -364,6 +364,8 @@ app.post('/api/tawk-ai', async (req, res) => {
   if (!message) return res.status(400).json({ error: 'Message exists validation failed' });
 
   try {
+    console.log('📨 Incoming Tawk AI message:', message);
+
     const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -378,11 +380,15 @@ app.post('/api/tawk-ai', async (req, res) => {
         ]
       })
     });
-
+    console.log('📡 DeepSeek status:', response.status);
 
     const data = await response.json();
+    console.log('🧠 DeepSeek raw response:', data);
+
     res.json(data);
   } catch (error) {
+    console.error('❌ Tawk AI route error:', error);
+
     res.status(500).json({ error: error.message });
   }
 });
