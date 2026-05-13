@@ -13,14 +13,10 @@ app.use(express.static(__dirname));
 
 // Safely get API keys
 const GEMINI_KEYS = (process.env.GEMINI_API_KEYS || '')
-  .split(',')
-  .map(k => k.trim())
-  .filter(k => k && k.startsWith('AIza'));
+  .split(',').map(k => k.trim()).filter(k => k && k.startsWith('AIza'));
 
 const GROQ_KEYS = (process.env.GROQ_API_KEYS || '')
-  .split(',')
-  .map(k => k.trim())
-  .filter(k => k && k.startsWith('gsk_'));
+  .split(',').map(k => k.trim()).filter(k => k && k.startsWith('gsk_'));
 
 let geminiKeyIdx = 0;
 let groqKeyIdx = 0;
@@ -29,15 +25,61 @@ console.log(`✅ Server start ho raha hai...`);
 console.log(`🔑 Gemini keys loaded: ${GEMINI_KEYS.length}`);
 console.log(`🔑 Groq keys loaded:   ${GROQ_KEYS.length}`);
 
-// Delay function for Rate Limit Handling
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Helper function to call Gemini API with retry logic and model fallback
+// ── GROQ (text only, free tier bahut generous hai) ──────────────────────────
+async function callGroq(question, systemPrompt, langName) {
+  if (GROQ_KEYS.length === 0) return { success: false, error: 'No Groq keys' };
+  if (!question) return { success: false, error: 'No question for Groq' };
+
+  for (let i = 0; i < GROQ_KEYS.length; i++) {
+    const keyToUse = GROQ_KEYS[(groqKeyIdx + i) % GROQ_KEYS.length];
+    try {
+      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + keyToUse },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: question + `\n\nAnswer in ${langName}.` }
+          ]
+        }),
+        timeout: 60000
+      });
+
+      if (resp.status === 429) {
+        console.warn(`⚠️ Groq rate limit key ${i + 1}. 3s wait...`);
+        await sleep(3000);
+        continue;
+      }
+
+      if (resp.ok) {
+        const data = await resp.json();
+        const rawText = data?.choices?.[0]?.message?.content || '';
+        if (rawText.length > 5) {
+          groqKeyIdx = (groqKeyIdx + i) % GROQ_KEYS.length;
+          console.log('✅ Groq success');
+          return { success: true, text: rawText };
+        }
+      } else {
+        const errBody = await resp.text();
+        console.error(`Groq Error key ${i+1}:`, resp.status, errBody.substring(0, 100));
+      }
+    } catch (e) {
+      console.error(`❌ Groq network error key ${i+1}:`, e.message);
+    }
+  }
+  return { success: false, error: 'All Groq keys failed' };
+}
+
+// ── GEMINI (image + text, limited free quota) ────────────────────────────────
 async function callGemini(question, imageBase64, systemPrompt, langName) {
   if (GEMINI_KEYS.length === 0) return { success: false, error: 'No Gemini keys' };
 
-  // FIX 1: gemini-2.0-flash pehle — iska free tier RPM sabse zyada hai (15 RPM)
-  const modelsToTry = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro'];
+  // 2.0-flash sabse zyada free RPM (15/min), baaki fallback
+  // Sirf 2.0 models — 2.5-flash = 500/day, 2.5-pro = 50/day (jaldi khatam). 2.0-flash = 1500/day
+  const modelsToTry = ['gemini-2.0-flash', 'gemini-2.0-flash-lite'];
   let lastError = null;
 
   for (const model of modelsToTry) {
@@ -52,9 +94,7 @@ async function callGemini(question, imageBase64, systemPrompt, langName) {
         const base64Data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
         parts.push({ inlineData: { mimeType: 'image/jpeg', data: base64Data } });
       }
-
-      const userMsg = (question || 'Please answer in detail.') + `\n\nAnswer in ${langName}.`;
-      parts.push({ text: userMsg });
+      parts.push({ text: (question || 'Please answer in detail.') + `\n\nAnswer in ${langName}.` });
 
       try {
         const resp = await fetch(geminiUrl, {
@@ -68,18 +108,17 @@ async function callGemini(question, imageBase64, systemPrompt, langName) {
           timeout: 60000
         });
 
-        // FIX 2: 429 pe 2 second sleep — bina sleep ke sab keys ek saath fail ho jaati hain
         if (resp.status === 429) {
           const errBody = await resp.text();
-          console.warn(`⚠️ Rate limit: ${model}, key ${i + 1}/${GEMINI_KEYS.length}. 2s ruk ke next key...`);
           lastError = `Rate Limit 429 on ${model} - ${errBody.substring(0, 100)}`;
+          console.warn(`⚠️ Gemini 429: ${model} key ${i+1}. 2s wait...`);
           await sleep(2000);
           continue;
         }
 
         if (resp.ok) {
           const gData = await resp.json();
-          let rawText = gData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          const rawText = gData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
           if (rawText.length > 5) {
             geminiKeyIdx = (geminiKeyIdx + i) % GEMINI_KEYS.length;
             console.log(`✅ Gemini success: ${model}`);
@@ -90,40 +129,26 @@ async function callGemini(question, imageBase64, systemPrompt, langName) {
         } else {
           const errBody = await resp.text();
           lastError = `Error ${resp.status} on ${model} - ${errBody}`;
-          console.error(`Gemini Error on ${model} (key ${i+1}):`, resp.status);
+          console.error(`Gemini ${resp.status} on ${model} key ${i+1}`);
           allKeysRateLimited = false;
-          if (resp.status === 404) break; // Model not found — skip to next model
+          if (resp.status === 404) break; // model not available, next model try karo
         }
       } catch (e) {
         lastError = e.message;
         allKeysRateLimited = false;
-        console.error('❌ Gemini Network error:', e.message);
+        console.error('❌ Gemini network error:', e.message);
       }
     }
 
-    // Agar is model ki saari keys rate limited hain to 3s wait karo next model se pehle
     if (allKeysRateLimited) {
-      console.warn(`⏳ ${model} ki saari keys rate limited. 3s baad agla model try karte hain...`);
+      console.warn(`⏳ ${model} sab keys 429. 3s baad agla model...`);
       await sleep(3000);
     }
   }
-
-  // Sab fail — available models list fetch karo diagnosis ke liye
-  try {
-    const listResp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_KEYS[0]}`);
-    if (listResp.ok) {
-      const listData = await listResp.json();
-      const modelNames = listData.models
-        .map(m => m.name.replace('models/', ''))
-        .filter(n => n.includes('gemini'))
-        .join(', ');
-      return { success: false, error: `Available models: ${modelNames}. Last error: ${lastError}` };
-    }
-  } catch (e) {}
-
   return { success: false, error: lastError };
 }
 
+// ── MAIN ROUTE ────────────────────────────────────────────────────────────────
 app.post('/api/ask', async (req, res) => {
   const { question, imageBase64, systemPrompt, selectedLangName } = req.body;
 
@@ -131,69 +156,49 @@ app.post('/api/ask', async (req, res) => {
     return res.status(400).json({ error: 'Sawaal ya image chahiye!' });
   }
 
-  const strictSystemPrompt = (systemPrompt || '') + "\n\nCRITICAL INSTRUCTION: You are 'Didi AI', a friendly teacher. Answer the student's question in a single, complete, and easy-to-understand response. Use simple step-by-step Hindi/Hinglish. If it is a Math question, solve it clearly.";
+  const lang = selectedLangName || 'Hindi';
+  const strictSystemPrompt = (systemPrompt || '') +
+    "\n\nCRITICAL INSTRUCTION: You are 'Didi AI', a friendly teacher. Answer the student's question in a single, complete, and easy-to-understand response. Use simple step-by-step Hindi/Hinglish. If it is a Math question, solve it clearly.";
 
-  // 1. Try Gemini First (Best for Image + Text)
-  console.log('🚀 Calling Gemini API...');
-  const geminiResult = await callGemini(question, imageBase64, strictSystemPrompt, selectedLangName || 'Hindi');
+  // ── STRATEGY ──────────────────────────────────────────────────────────────
+  // Image hai → sirf Gemini kar sakta hai (vision chahiye)
+  // Text only → pehle Groq (quota unlimited jaise), Gemini sirf backup
+  // ─────────────────────────────────────────────────────────────────────────
 
-  if (geminiResult.success) {
-    console.log('✅ Gemini API success');
-    return res.json({ success: true, rawText: geminiResult.text });
-  }
+  if (imageBase64) {
+    // IMAGE: Gemini primary, Groq se text-only fallback
+    console.log('🖼️ Image request → Gemini try kar raha hai...');
+    const geminiResult = await callGemini(question, imageBase64, strictSystemPrompt, lang);
+    if (geminiResult.success) return res.json({ success: true, rawText: geminiResult.text });
 
-  // FIX 3: Groq fallback — image ho ya na ho, agar text question hai toh Groq try karo
-  console.log(`⚠️ Gemini failed: ${geminiResult.error}. Trying Groq...`);
-  if (question && GROQ_KEYS.length > 0) {
-    for (let i = 0; i < GROQ_KEYS.length; i++) {
-      const keyToUse = GROQ_KEYS[(groqKeyIdx + i) % GROQ_KEYS.length];
-      try {
-        const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + keyToUse },
-          body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
-            messages: [
-              { role: 'system', content: strictSystemPrompt },
-              { role: 'user', content: question + `\n\nAnswer in ${selectedLangName || 'Hindi'}.` }
-            ]
-          }),
-          timeout: 60000
-        });
-
-        if (resp.status === 429) {
-          const errBody = await resp.text();
-          console.warn(`⚠️ Groq rate limit key ${i + 1}. 5s ruk ke next key...`);
-          await sleep(5000);
-          continue;
-        }
-
-        if (resp.ok) {
-          const data = await resp.json();
-          const rawText = data?.choices?.[0]?.message?.content || '';
-          if (rawText.length > 5) {
-            groqKeyIdx = (groqKeyIdx + i) % GROQ_KEYS.length;
-            console.log('✅ Groq API success');
-            return res.json({ success: true, rawText });
-          }
-        } else {
-          const errBody = await resp.text();
-          console.error(`Groq Error (key ${i+1}):`, resp.status, errBody.substring(0, 100));
-        }
-      } catch (e) {
-        console.error(`❌ Groq Network error (key ${i+1}):`, e.message);
-      }
+    // Image samajh nahi aaya, question text hai toh Groq se try karo
+    if (question) {
+      console.log('⚠️ Gemini image failed, Groq se sirf text answer de raha hai...');
+      const groqResult = await callGroq(question, strictSystemPrompt, lang);
+      if (groqResult.success) return res.json({ success: true, rawText: '(Image analysis unavailable)\n\n' + groqResult.text });
     }
-  }
 
-  return res.status(503).json({ error: true, message: `All APIs failed. Last error: ${geminiResult.error}` });
+    return res.status(503).json({ error: true, message: `All APIs failed. ${geminiResult.error}` });
+
+  } else {
+    // TEXT ONLY: Groq primary (fast + no daily quota), Gemini sirf backup
+    console.log('💬 Text request → Groq try kar raha hai (primary)...');
+    const groqResult = await callGroq(question, strictSystemPrompt, lang);
+    if (groqResult.success) return res.json({ success: true, rawText: groqResult.text });
+
+    console.log('⚠️ Groq failed, Gemini backup try kar raha hai...');
+    const geminiResult = await callGemini(question, null, strictSystemPrompt, lang);
+    if (geminiResult.success) return res.json({ success: true, rawText: geminiResult.text });
+
+    return res.status(503).json({ error: true, message: `All APIs failed. Groq: ${groqResult.error} | Gemini: ${geminiResult.error}` });
+  }
 });
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', gemini_keys: GEMINI_KEYS.length, groq_keys: GROQ_KEYS.length });
 });
 
-// Diagnostic: fetch which models are available for this key
+// Diagnostic: fetch which Gemini models are available
 app.get('/api/models', async (req, res) => {
   if (GEMINI_KEYS.length === 0) return res.json({ error: 'No Gemini keys loaded' });
   try {
@@ -202,10 +207,7 @@ app.get('/api/models', async (req, res) => {
     if (data.models) {
       const geminiModels = data.models
         .filter(m => m.name.includes('gemini'))
-        .map(m => ({
-          name: m.name.replace('models/', ''),
-          methods: m.supportedGenerationMethods || []
-        }));
+        .map(m => ({ name: m.name.replace('models/', ''), methods: m.supportedGenerationMethods || [] }));
       return res.json({ available_models: geminiModels });
     }
     return res.json({ raw: data });
