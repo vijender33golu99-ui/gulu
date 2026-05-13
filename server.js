@@ -67,6 +67,29 @@ const aiCacheSchema = new mongoose.Schema({
 
 const AiCache = mongoose.models.AiCache || mongoose.model('AiCache', aiCacheSchema);
 
+// ── Runtime Monitoring Counters (in-memory, resets on restart) ──
+const monitorStats = {
+  totalRequests : 0,
+  cacheHits     : 0,
+  cacheMisses   : 0,
+  ocrRequests   : 0,
+  providers     : {
+    nvidia     : 0,
+    deepseek   : 0,
+    gemini     : 0,
+    groq       : 0,
+    openrouter : 0,
+  }
+};
+
+// Ring-buffer activity log (latest 100 entries)
+const MAX_LOGS = 100;
+const activityLogs = [];
+function addLog(tag, msg) {
+  activityLogs.unshift({ time: new Date().toISOString(), tag, msg });
+  if (activityLogs.length > MAX_LOGS) activityLogs.length = MAX_LOGS;
+}
+
 // ── Health Check ─────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   res.json({
@@ -81,6 +104,16 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// ── Admin: Stats ─────────────────────────────────────────────
+app.get('/api/admin/stats', (req, res) => {
+  res.json({ ...monitorStats });
+});
+
+// ── Admin: Activity Logs ──────────────────────────────────────
+app.get('/api/admin/logs', (req, res) => {
+  res.json({ logs: activityLogs });
+});
+
 // ══════════════════════════════════════════════════════════════
 //  MAIN AI ENDPOINT  →  POST /api/ask
 // ══════════════════════════════════════════════════════════════
@@ -90,6 +123,8 @@ app.post('/api/ask', async (req, res) => {
   if (!question && !imageBase64) {
     return res.status(400).json({ error: 'Sawaal ya image chahiye!' });
   }
+
+  monitorStats.totalRequests++;
 
   let rawText      = '';
   let apiSuccess   = false;
@@ -101,9 +136,13 @@ app.post('/api/ask', async (req, res) => {
       const cached = await AiCache.findOne({ question }).lean();
       if (cached) {
         console.log('✅ CACHE HIT — returning cached answer');
+        monitorStats.cacheHits++;
+        addLog('hit', `Cache hit for: "${String(question).substring(0, 80)}"`);
         return res.json({ success: true, rawText: cached.answer, fromCache: true });
       } else {
         console.log('🔍 CACHE MISS — proceeding to AI providers');
+        monitorStats.cacheMisses++;
+        addLog('miss', `Cache miss for: "${String(question).substring(0, 80)}"`);
       }
     } catch (cacheErr) {
       console.warn('⚠️ Cache lookup error (skipping):', cacheErr.message);
@@ -122,8 +161,11 @@ app.post('/api/ask', async (req, res) => {
       ocrText = (text || '').trim();
       if (ocrText.length > 3) {
         console.log(`✅ OCR SUCCESS — extracted ${ocrText.length} chars`);
+        monitorStats.ocrRequests++;
+        addLog('ocr', `OCR SUCCESS — extracted ${ocrText.length} chars from image`);
       } else {
         console.log('⚠️ OCR SUCCESS but no useful text found — using vision only');
+        addLog('ocr', 'OCR ran but found no useful text — using vision only');
         ocrText = '';
       }
     } catch (ocrErr) {
@@ -169,9 +211,12 @@ ${ocrText}`
         rawText    = result.content;
         apiSuccess = true;
         console.log('✅ NVIDIA API success');
+        monitorStats.providers.nvidia++;
+        addLog('provider', `NVIDIA Build API responded successfully (req #${monitorStats.providers.nvidia})`);
       } else {
         lastErrorMsg = `NVIDIA Error: ${result?.error || 'Unknown error'}`;
         console.warn('⚠️ NVIDIA API failed:', lastErrorMsg);
+        addLog('error', `NVIDIA failed: ${lastErrorMsg.substring(0, 120)}`);
       }
     } catch (e) {
       console.error('❌ NVIDIA Integration error:', e.message);
@@ -211,7 +256,8 @@ ${ocrText}`
         if (rawText.length > 5) {
           apiSuccess = true;
           console.log('✅ DeepSeek V3 success');
-
+          monitorStats.providers.deepseek++;
+          addLog('provider', `DeepSeek V3 responded successfully (req #${monitorStats.providers.deepseek})`);
           // Unified cache save happens after all providers (see below)
         }
       } else {
@@ -258,6 +304,8 @@ ${ocrText}`
             apiSuccess   = true;
             geminiKeyIdx = (geminiKeyIdx + i) % GEMINI_KEYS.length;
             console.log('✅ Gemini API success');
+            monitorStats.providers.gemini++;
+            addLog('provider', `Gemini 2.0 Flash responded successfully (req #${monitorStats.providers.gemini})`);
             break;
           }
         }
@@ -291,6 +339,8 @@ ${ocrText}`
           rawText    = data?.choices?.[0]?.message?.content || '';
           apiSuccess = true;
           console.log('✅ Groq API success');
+          monitorStats.providers.groq++;
+          addLog('provider', `Groq responded successfully (req #${monitorStats.providers.groq})`);
           break;
         }
       } catch (e) {}
@@ -330,6 +380,8 @@ ${ocrText}`
         if (rawText.length > 5) {
           apiSuccess = true;
           console.log('✅ OPENROUTER SUCCESS — response received');
+          monitorStats.providers.openrouter++;
+          addLog('provider', `OpenRouter responded successfully (req #${monitorStats.providers.openrouter})`);
         }
       } else {
         const errBody = await resp.text();
@@ -361,8 +413,10 @@ app.post('/api/math', async (req, res) => {
   return app._router.handle({ ...req, url: '/api/ask', method: 'POST' }, res, () => res.status(500).json({ error: 'Internal routing error' }));
 });
 
-// ── Catch-all ────────────────────────────────────────────────
+// ── Catch-all (must remain LAST — /api/admin/* routes are above) ──
 app.get('*', (req, res) => {
+  // Never intercept API routes
+  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Unknown API route' });
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
