@@ -75,14 +75,62 @@ if (process.env.MONGODB_URI) {
   console.warn('⚠️  MONGODB_URI not set — cache disabled');
 }
 
-// ── AI Cache Schema ───────────────────────────────────────────
-const aiCacheSchema = new mongoose.Schema({
-  question: { type: String, required: true },
-  answer: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now }
-});
+// ══════════════════════════════════════════════════════════════
+//  STAGE 2 — cached_answers MongoDB Model (30-day TTL)
+// ══════════════════════════════════════════════════════════════
+const cachedAnswerSchema = new mongoose.Schema(
+  {
+    normalizedQuestion: { type: String, required: true, unique: true },
+    originalQuestion:   { type: String, required: true },
+    answer:             { type: String, required: true },
+    provider:           { type: String, default: 'unknown' },
+    model:              { type: String, default: 'unknown' },
+    createdAt:          { type: Date,   default: Date.now, expires: 2592000 }, // 30 days TTL
+    updatedAt:          { type: Date,   default: Date.now }
+  },
+  { collection: 'cached_answers' }
+);
 
-const AiCache = mongoose.models.AiCache || mongoose.model('AiCache', aiCacheSchema);
+cachedAnswerSchema.index({ normalizedQuestion: 1 });
+
+const CachedAnswer = mongoose.models.CachedAnswer ||
+  mongoose.model('CachedAnswer', cachedAnswerSchema);
+
+// ══════════════════════════════════════════════════════════════
+//  STAGE 3 — Question Normalizer Utility
+// ══════════════════════════════════════════════════════════════
+/**
+ * Normalizes a question string for cache key matching:
+ *  - trims leading/trailing whitespace
+ *  - lowercases
+ *  - collapses duplicate spaces
+ */
+function normalizeQuestion(q) {
+  return (q || '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  Cache Save Helper (fire-and-forget, never blocks response)
+// ══════════════════════════════════════════════════════════════
+function saveToCache(originalQ, answer, provider, model) {
+  if (mongoose.connection.readyState !== 1) return;
+  if (!originalQ || !answer) return;
+  const normQ = normalizeQuestion(originalQ);
+  CachedAnswer.findOneAndUpdate(
+    { normalizedQuestion: normQ },
+    {
+      normalizedQuestion: normQ,
+      originalQuestion:   originalQ,
+      answer,
+      provider,
+      model,
+      updatedAt: new Date()
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  )
+    .then(() => console.log(`💾 CACHE SAVED — [${provider}/${model}]`))
+    .catch(err => console.warn('⚠️ Cache save error (non-fatal):', err.message));
+}
 
 // ── Health Check ─────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
@@ -112,13 +160,25 @@ app.post('/api/ask', async (req, res) => {
   let apiSuccess = false;
   let lastErrorMsg = 'API se connection nahi hua';
 
-  // ── MongoDB Cache Lookup (text questions only) ─────────────
+  // Provider and model tracking for cache metadata
+  let usedProvider = 'unknown';
+  let usedModel    = 'unknown';
+
+  // ══════════════════════════════════════════════════════════
+  //  STAGE 4 — Cache Lookup (text questions only, before AI)
+  // ══════════════════════════════════════════════════════════
   if (!imageBase64 && question && mongoose.connection.readyState === 1) {
     try {
-      const cached = await AiCache.findOne({ question }).lean();
+      const normQ  = normalizeQuestion(question);
+      const cached = await CachedAnswer.findOne({ normalizedQuestion: normQ }).lean();
       if (cached) {
         console.log('✅ CACHE HIT — returning cached answer');
-        return res.json({ success: true, rawText: cached.answer, fromCache: true });
+        return res.json({
+          success:   true,
+          rawText:   cached.answer,
+          fromCache: true,
+          cached:    true
+        });
       } else {
         console.log('🔍 CACHE MISS — proceeding to AI providers');
       }
@@ -183,8 +243,10 @@ ${ocrText}`
       }
 
       if (result && result.success) {
-        rawText = result.content;
-        apiSuccess = true;
+        rawText      = result.content;
+        apiSuccess   = true;
+        usedProvider = 'nvidia';
+        usedModel    = useCase;
         console.log('✅ NVIDIA API success');
       } else {
         lastErrorMsg = `NVIDIA Error: ${result?.error || 'Unknown error'}`;
@@ -226,10 +288,10 @@ ${ocrText}`
         const data = await resp.json();
         rawText = data?.choices?.[0]?.message?.content || '';
         if (rawText.length > 5) {
-          apiSuccess = true;
+          apiSuccess   = true;
+          usedProvider = 'deepseek';
+          usedModel    = 'deepseek-chat';
           console.log('✅ DeepSeek V3 success');
-
-          // Unified cache save happens after all providers (see below)
         }
       } else {
         const errBody = await resp.text();
@@ -272,7 +334,9 @@ ${ocrText}`
           const gData = await resp.json();
           rawText = gData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
           if (rawText.length > 5) {
-            apiSuccess = true;
+            apiSuccess   = true;
+            usedProvider = 'gemini';
+            usedModel    = geminiModel;
             geminiKeyIdx = (geminiKeyIdx + i) % GEMINI_KEYS.length;
             console.log('✅ Gemini API success');
             break;
@@ -286,15 +350,17 @@ ${ocrText}`
 
   // ── PRIORITY 3: Groq Fallback ──────────────────────────────
   if (!apiSuccess && GROQ_KEYS.length > 0) {
-    // ... (Groq logic remains same but simplified for safety)
     for (let i = 0; i < GROQ_KEYS.length; i++) {
-      const keyToUse = GROQ_KEYS[(groqKeyIdx + i) % GROQ_KEYS.length];
+      const keyToUse  = GROQ_KEYS[(groqKeyIdx + i) % GROQ_KEYS.length];
+      const groqModel = imageBase64
+        ? 'meta-llama/llama-4-scout-17b-16e-instruct'
+        : 'llama-3.3-70b-versatile';
       try {
         const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + keyToUse },
           body: JSON.stringify({
-            model: imageBase64 ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile',
+            model: groqModel,
             response_format: { type: 'json_object' },
             messages: [
               { role: 'system', content: systemPrompt },
@@ -306,7 +372,9 @@ ${ocrText}`
         if (resp.ok) {
           const data = await resp.json();
           rawText = data?.choices?.[0]?.message?.content || '';
-          apiSuccess = true;
+          apiSuccess   = true;
+          usedProvider = 'groq';
+          usedModel    = groqModel;
           console.log('✅ Groq API success');
           break;
         }
@@ -318,6 +386,7 @@ ${ocrText}`
   if (!apiSuccess && OPENROUTER_KEY && !imageBase64) {
     try {
       console.log('🚨 OPENROUTER FALLBACK — trying OpenRouter...');
+      const orModel = 'deepseek/deepseek-chat-v3-0324:free';
       const userMsg = (question || 'Explain in detail.')
         + `\n\nAnswer in ${selectedLangName}. Return JSON format.`;
 
@@ -330,7 +399,7 @@ ${ocrText}`
           'X-Title': 'VBS Free Tuition'
         },
         body: JSON.stringify({
-          model: 'deepseek/deepseek-chat-v3-0324:free',
+          model: orModel,
           response_format: { type: 'json_object' },
           messages: [
             { role: 'system', content: systemPrompt },
@@ -345,7 +414,9 @@ ${ocrText}`
         const data = await resp.json();
         rawText = data?.choices?.[0]?.message?.content || '';
         if (rawText.length > 5) {
-          apiSuccess = true;
+          apiSuccess   = true;
+          usedProvider = 'openrouter';
+          usedModel    = orModel;
           console.log('✅ OPENROUTER SUCCESS — response received');
         }
       } else {
@@ -363,14 +434,14 @@ ${ocrText}`
     return res.status(503).json({ error: true, message: `All APIs failed. Last error: ${lastErrorMsg}` });
   }
 
-  // ── Unified Cache Save ────────────────────────────────────
-  if (!imageBase64 && question && mongoose.connection.readyState === 1) {
-    AiCache.create({ question, answer: rawText })
-      .then(() => console.log('💾 CACHE SAVED — answer stored in MongoDB'))
-      .catch(err => console.warn('⚠️ Cache save error:', err.message));
+  // ══════════════════════════════════════════════════════════
+  //  STAGE 5 — Cache Save (text questions only, after AI)
+  // ══════════════════════════════════════════════════════════
+  if (!imageBase64 && question) {
+    saveToCache(question, rawText, usedProvider, usedModel);
   }
 
-  return res.json({ success: true, rawText });
+  return res.json({ success: true, rawText, cached: false });
 });
 
 // ── Tawk AI Endpoint ──────────────────────────────────────────
@@ -409,6 +480,24 @@ app.post('/api/tawk-ai', async (req, res) => {
     'Do NOT auto-greet or generate answers without a real user question.';
   const failures = []; // collect per-provider error details
 
+  // ══════════════════════════════════════════════════════════
+  //  STAGE 4 (Tawk) — Cache Lookup before any AI provider
+  // ══════════════════════════════════════════════════════════
+  if (mongoose.connection.readyState === 1) {
+    try {
+      const normQ  = normalizeQuestion(cleanMessage);
+      const cached = await CachedAnswer.findOne({ normalizedQuestion: normQ }).lean();
+      if (cached) {
+        console.log('✅ CACHE HIT (Tawk AI) — returning cached answer');
+        return res.json({ success: true, reply: cached.answer, cached: true });
+      } else {
+        console.log('🔍 CACHE MISS (Tawk AI) — proceeding to AI providers');
+      }
+    } catch (cacheErr) {
+      console.warn('⚠️ Tawk cache lookup error (skipping):', cacheErr.message);
+    }
+  }
+
   // ── PROVIDER 1: DeepSeek ─────────────────────────────────────
   if (DEEPSEEK_KEY) {
     const providerName = 'DeepSeek';
@@ -433,7 +522,8 @@ app.post('/api/tawk-ai', async (req, res) => {
         const reply = data?.choices?.[0]?.message?.content || '';
         if (reply) {
           console.log('✅ Provider success:', providerName);
-          return res.json({ success: true, reply });
+          saveToCache(cleanMessage, reply, 'deepseek', 'deepseek-chat');
+          return res.json({ success: true, reply, cached: false });
         }
       }
       const errBody = await resp.text().catch(() => '');
@@ -449,6 +539,7 @@ app.post('/api/tawk-ai', async (req, res) => {
   // ── PROVIDER 2: Groq ─────────────────────────────────────────
   if (GROQ_KEYS.length > 0) {
     const providerName = 'Groq';
+    const groqModel    = 'llama-3.3-70b-versatile';
     console.log('🔄 Trying provider:', providerName);
     for (let i = 0; i < GROQ_KEYS.length; i++) {
       const key = GROQ_KEYS[(groqKeyIdx + i) % GROQ_KEYS.length];
@@ -457,7 +548,7 @@ app.post('/api/tawk-ai', async (req, res) => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
           body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
+            model: groqModel,
             messages: [
               { role: 'system', content: SYSTEM_PROMPT },
               { role: 'user', content: cleanMessage }
@@ -471,7 +562,8 @@ app.post('/api/tawk-ai', async (req, res) => {
           if (reply) {
             groqKeyIdx = (groqKeyIdx + i) % GROQ_KEYS.length;
             console.log('✅ Provider success:', providerName);
-            return res.json({ success: true, reply });
+            saveToCache(cleanMessage, reply, 'groq', groqModel);
+            return res.json({ success: true, reply, cached: false });
           }
         }
         const errBody = await resp.text().catch(() => '');
@@ -498,6 +590,7 @@ app.post('/api/tawk-ai', async (req, res) => {
   // ── PROVIDER 3: OpenRouter ───────────────────────────────────
   if (OPENROUTER_KEY) {
     const providerName = 'OpenRouter';
+    const orModel      = 'deepseek/deepseek-chat-v3-0324:free';
     console.log('🔄 Trying provider:', providerName);
     try {
       const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -509,7 +602,7 @@ app.post('/api/tawk-ai', async (req, res) => {
           'X-Title': 'VBS Free Tuition'
         },
         body: JSON.stringify({
-          model: 'deepseek/deepseek-chat-v3-0324:free',
+          model: orModel,
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
             { role: 'user', content: cleanMessage }
@@ -522,7 +615,8 @@ app.post('/api/tawk-ai', async (req, res) => {
         const reply = data?.choices?.[0]?.message?.content || '';
         if (reply) {
           console.log('✅ Provider success:', providerName);
-          return res.json({ success: true, reply });
+          saveToCache(cleanMessage, reply, 'openrouter', orModel);
+          return res.json({ success: true, reply, cached: false });
         }
       }
       const errBody = await resp.text().catch(() => '');
@@ -538,10 +632,11 @@ app.post('/api/tawk-ai', async (req, res) => {
   // ── PROVIDER 4: Gemini ───────────────────────────────────────
   if (GEMINI_KEYS.length > 0) {
     const providerName = 'Gemini';
+    const geminiModel  = 'gemini-2.0-flash';
     console.log('🔄 Trying provider:', providerName);
     for (let i = 0; i < GEMINI_KEYS.length; i++) {
       const key = GEMINI_KEYS[(geminiKeyIdx + i) % GEMINI_KEYS.length];
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${key}`;
       try {
         const resp = await fetch(url, {
           method: 'POST',
@@ -559,7 +654,8 @@ app.post('/api/tawk-ai', async (req, res) => {
           if (reply) {
             geminiKeyIdx = (geminiKeyIdx + i) % GEMINI_KEYS.length;
             console.log('✅ Provider success:', providerName);
-            return res.json({ success: true, reply });
+            saveToCache(cleanMessage, reply, 'gemini', geminiModel);
+            return res.json({ success: true, reply, cached: false });
           }
         }
         const errBody = await resp.text().catch(() => '');
