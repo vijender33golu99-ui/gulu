@@ -1,0 +1,2181 @@
+// VBS Free Tuition — Main JavaScript
+// vbscomputersystem.in | Extracted from index.html
+
+    // Cancel any ghost speech immediately on load
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+
+    // ===== SECURE BACKEND CONFIG =====
+    // 🔐 API keys ab server par safe hain — yahaan koi key nahi hai!
+    // Saari AI requests is backend URL par jayengi:
+    const BACKEND_URL = 'https://gulu-r5pi.onrender.com/api/ask'; // Render backend
+    const TAWK_AI_URL = 'https://gulu-r5pi.onrender.com/api/tawk-ai'; // Tawk AI endpoint
+
+
+
+    // (Ye sirf compatibility ke liye hain — ab use nahi hote)
+    let geminiKeyIndex = 0;
+    let currentKeyIndex = 0;
+
+    // ===== REGISTRATION & INTERRUPT LOGIC =====
+    let studentProfile = null;
+    function checkRegistration() {
+      const saved = localStorage.getItem('vbs_student_profile');
+      const isSessionActive = sessionStorage.getItem('vbs_session_active');
+
+      if (saved && isSessionActive) {
+        try { studentProfile = JSON.parse(saved); } catch (e) { }
+      } else if (saved) {
+        try {
+          const p = JSON.parse(saved);
+          document.getElementById('saved-user-name').innerText = p.name;
+          document.getElementById('saved-user-name-btn').innerText = p.name;
+          document.getElementById('saved-user-screen').style.display = 'block';
+          document.getElementById('new-user-form').style.display = 'none';
+        } catch (e) { }
+        document.getElementById('reg-modal').classList.add('show');
+      } else {
+        showNewUserForm();
+        document.getElementById('reg-modal').classList.add('show');
+      }
+    }
+
+    function loginSavedUser() {
+      const saved = localStorage.getItem('vbs_student_profile');
+      if (saved) {
+        try { studentProfile = JSON.parse(saved); } catch (e) { }
+        sessionStorage.setItem('vbs_session_active', 'true');
+        document.getElementById('reg-modal').classList.remove('show');
+      }
+    }
+
+    function showNewUserForm() {
+      document.getElementById('saved-user-screen').style.display = 'none';
+      document.getElementById('new-user-form').style.display = 'block';
+      document.getElementById('reg-name').value = '';
+      document.getElementById('reg-age').value = '';
+      document.getElementById('reg-school').value = '';
+      document.getElementById('reg-parent').value = '';
+      document.getElementById('reg-mobile').value = '';
+      document.getElementById('reg-otp').value = '';
+      document.getElementById('otp-wrap').style.display = 'none';
+      document.getElementById('save-profile-btn').style.display = 'none';
+      const btn = document.getElementById('otp-btn');
+      btn.innerText = 'Send OTP';
+      btn.disabled = false;
+      btn.style.background = 'linear-gradient(135deg,var(--blue),var(--purple))';
+    }
+
+    function logoutProfile() {
+      if (confirm('क्या आप सच में Log Out करना चाहते हैं?')) {
+        sessionStorage.removeItem('vbs_session_active');
+        studentProfile = null;
+        checkRegistration();
+      }
+    }
+
+    function sendOtp() {
+      const mobile = document.getElementById('reg-mobile').value;
+      if (!mobile || mobile.length < 10) return alert('Enter valid mobile number');
+      const btn = document.getElementById('otp-btn');
+      btn.innerText = 'Sending...';
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.innerText = 'OTP Sent';
+        document.getElementById('otp-wrap').style.display = 'flex';
+      }, 1500);
+    }
+
+    function verifyOtp() {
+      const otp = document.getElementById('reg-otp').value;
+      if (!otp) return alert('Enter OTP');
+      document.getElementById('otp-wrap').style.display = 'none';
+      const btn = document.getElementById('otp-btn');
+      btn.innerText = 'Verified ✅';
+      btn.style.background = 'var(--green)';
+      document.getElementById('save-profile-btn').style.display = 'block';
+    }
+
+    function saveProfile() {
+      const p = {
+        name: document.getElementById('reg-name').value || 'Student',
+        age: document.getElementById('reg-age').value || '10',
+        class: document.getElementById('reg-class').value,
+        school: document.getElementById('reg-school').value || '',
+        parent: document.getElementById('reg-parent').value || ''
+      };
+      localStorage.setItem('vbs_student_profile', JSON.stringify(p));
+      sessionStorage.setItem('vbs_session_active', 'true');
+      studentProfile = p;
+      document.getElementById('reg-modal').classList.remove('show');
+    }
+
+    function showInterruptBox() {
+      stopTeacherSpeak();
+      document.getElementById('interrupt-box').style.display = 'flex';
+      document.getElementById('interrupt-input').focus();
+    }
+
+    function sendInterrupt() {
+      const val = document.getElementById('interrupt-input').value || "मुझे समझ नहीं आया, कृपया इसे और भी आसान भाषा में और छोटे बच्चों वाले उदाहरण देकर समझाएं।";
+      document.getElementById('interrupt-box').style.display = 'none';
+      document.getElementById('question-input').value = val;
+      askQuestion();
+    }
+
+    // ===== LANGUAGE CONFIG =====
+    const LANG_CONFIG = {
+      hindi: { name: 'Hindi (हिंदी)', speech: 'hi-IN', placeholder: 'यहाँ सवाल लिखें... या 🎤 माइक बटन दबाकर बोलें!', micMsg: 'सुन रहा हूँ... बोलिए!' },
+      english: { name: 'English', speech: 'en-IN', placeholder: 'Type your question... or press 🎤 to speak!', micMsg: 'Listening... please speak!' },
+      bengali: { name: 'Bengali (বাংলা)', speech: 'bn-IN', placeholder: 'এখানে প্রশ্ন লিখুন... অথবা 🎤 মাইক বোতাম চাপুন!', micMsg: 'শুনছি... বলুন!' },
+      telugu: { name: 'Telugu (తెలుగు)', speech: 'te-IN', placeholder: 'ఇక్కడ ప్రశ్న రాయండి... లేదా 🎤 మైక్ నొక్కండి!', micMsg: 'వింటున్నాను... చెప్పండి!' },
+      marathi: { name: 'Marathi (मराठी)', speech: 'mr-IN', placeholder: 'इथे प्रश्न लिहा... किंवा 🎤 मायक बटण दाबा!', micMsg: 'ऐकतोय... बोला!' },
+      tamil: { name: 'Tamil (தமிழ்)', speech: 'ta-IN', placeholder: 'இங்கே கேள்வி எழுதுங்கள்... அல்லது 🎤 மைக் அழுத்துங்கள்!', micMsg: 'கேட்கிறேன்... பேசுங்கள்!' },
+      urdu: { name: 'Urdu (اردو)', speech: 'ur-PK', placeholder: 'یہاں سوال لکھیں... یا 🎤 مائیک بٹن دبائیں!', micMsg: 'سن رہا ہوں... بولیے!' },
+      gujarati: { name: 'Gujarati (ગુજરાતી)', speech: 'gu-IN', placeholder: 'અહીં સવાલ લખો... અથવા 🎤 માઇક બટન દબાવો!', micMsg: 'સાંભળી રહ્યો છું... બોલો!' },
+      kannada: { name: 'Kannada (ಕನ್ನಡ)', speech: 'kn-IN', placeholder: 'ಇಲ್ಲಿ ಪ್ರಶ್ನೆ ಬರೆಯಿರಿ... ಅಥವಾ 🎤 ಮೈಕ್ ಒತ್ತಿರಿ!', micMsg: 'ಕೇಳುತ್ತಿದ್ದೇನೆ... ಹೇಳಿ!' },
+      odia: { name: 'Odia (ଓଡ଼ିଆ)', speech: 'or-IN', placeholder: 'ଏଠାରେ ପ୍ରଶ୍ନ ଲେଖ... ବା 🎤 ମାଇକ ବଟନ ଦବାନ୍ତୁ!', micMsg: 'ଶୁଣୁଛି... କୁହ!' },
+      malayalam: { name: 'Malayalam (മലയാളം)', speech: 'ml-IN', placeholder: 'ഇവിടെ ചോദ്യം എഴുതുക... അല്ലെങ്കിൽ 🎤 മൈക്ക് അമർത്തുക!', micMsg: 'കേൾക്കുന്നു... പറയൂ!' },
+      punjabi: { name: 'Punjabi (ਪੰਜਾਬੀ)', speech: 'pa-IN', placeholder: 'ਇੱਥੇ ਸਵਾਲ ਲਿਖੋ... ਜਾਂ 🎤 ਮਾਈਕ ਬਟਨ ਦਬਾਓ!', micMsg: 'ਸੁਣ ਰਿਹਾ ਹਾਂ... ਬੋਲੋ!' },
+      assamese: { name: 'Assamese (অসমীয়া)', speech: 'as-IN', placeholder: 'ইয়াত প্ৰশ্ন লিখক... বা 🎤 মাইক বুটাম টিপক!', micMsg: 'শুনি আছো... কওক!' },
+      maithili: { name: 'Maithili (मैथिली)', speech: 'hi-IN', placeholder: 'एतय सवाल लिखू... वा 🎤 माइक दबाऊ!', micMsg: 'सुनि रहल छी... बाजू!' },
+      nepali: { name: 'Nepali (नेपाली)', speech: 'ne-NP', placeholder: 'यहाँ प्रश्न लेख्नुस्... वा 🎤 माइक थिच्नुस्!', micMsg: 'सुन्दैछु... बोल्नुस्!' },
+      sanskrit: { name: 'Sanskrit (संस्कृत)', speech: 'hi-IN', placeholder: 'अत्र प्रश्नं लिखतु... वा 🎤 माइक दबातु!', micMsg: 'श्रृणोमि... वदतु!' },
+      konkani: { name: 'Konkani (कोंकणी)', speech: 'kok-IN', placeholder: 'हाँगा प्रश्न बरय... वा 🎤 माइक दाबय!', micMsg: 'आयकतालो... उलय!' },
+      manipuri: { name: 'Manipuri (মণিপুরী)', speech: 'mni-IN', placeholder: 'মতাংদা প্রশ্ন থীবিরু... বা 🎤 মাইক চাবিরু!', micMsg: 'হংলিবা মী অয়াবু...' },
+      dogri: { name: 'Dogri (डोगरी)', speech: 'doi-IN', placeholder: 'एत्थे सुआल लिखो... या 🎤 माइक दबाओ!', micMsg: 'सुण दा हां... बोलो!' },
+      kashmiri: { name: 'Kashmiri (कश्मीरी)', speech: 'ks-IN', placeholder: 'یہاں سوال لکھو... یا 🎤 مائیک دباؤ!', micMsg: 'سنان... بول!' },
+      sindhi: { name: 'Sindhi (سنڌي)', speech: 'sd-IN', placeholder: 'هتي سوال لکو... يا 🎤 مائيڪ دٻايو!', micMsg: 'ٻڌان ٿو... ڳالهايو!' },
+      bodo: { name: 'Bodo (बोड़ो)', speech: 'brx-IN', placeholder: 'इथे सोवाल लिख... वा 🎤 माइक दबा!', micMsg: 'सोनाव दोनो... हाखा!' },
+      santali: { name: 'Santali (ᱥᱟᱱᱛᱟᱲᱤ)', speech: 'sat-IN', placeholder: 'नित सेंदरा ते लेखा... वा 🎤 माइक दबाका!', micMsg: 'हुड़िञ काना... काथा कामि!' },
+    };
+
+    // ===== STATE =====
+    let currentLang = 'hindi';
+    let uploadedImageBase64 = null;
+    let speedValue = 2;
+    let lastAnswers = {};
+    let recognition = null;
+    let isListening = false;
+    let currentQuestion = '';
+
+    // ===== SESSION HISTORY =====
+    let sessionHistory = []; // [{q, a_teacher, timestamp}]
+
+    function addToSession(question, teacherAnswer) {
+      sessionHistory.push({
+        q: question,
+        teacher: teacherAnswer,
+        time: new Date().toLocaleTimeString('hi-IN', { hour: '2-digit', minute: '2-digit' })
+      });
+      renderSessionPanel();
+    }
+
+    function renderSessionPanel() {
+      const list = document.getElementById('session-list');
+      const badge = document.getElementById('session-count-badge');
+      badge.textContent = sessionHistory.length;
+      if (sessionHistory.length === 0) {
+        list.innerHTML = '<div style="font-size:0.78rem;color:var(--muted);text-align:center;padding:16px">अभी कोई सवाल नहीं पूछा गया</div>';
+        return;
+      }
+      list.innerHTML = sessionHistory.slice().reverse().map((item, idx) => {
+        const realIdx = sessionHistory.length - 1 - idx;
+        return `
+      <div onclick="loadSessionItem(${realIdx})" style="
+        background:var(--bg3);border:1px solid var(--border);border-radius:10px;
+        padding:10px 12px;cursor:pointer;transition:all .2s;
+      " onmouseover="this.style.borderColor='var(--blue)'" onmouseout="this.style.borderColor='var(--border)'">
+        <div style="font-size:0.78rem;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          ${realIdx + 1}. ${item.q.slice(0, 50)}${item.q.length > 50 ? '...' : ''}
+        </div>
+        <div style="font-size:0.68rem;color:var(--muted);margin-top:3px;display:flex;gap:8px">
+          <span>🕐 ${item.time}</span>
+          <span style="background:rgba(6,214,160,0.15);border:1px solid rgba(6,214,160,0.3);border-radius:50px;padding:1px 7px;color:#34D399">✓ जवाब मिला</span>
+        </div>
+      </div>`;
+      }).join('');
+    }
+
+    function loadSessionItem(idx) {
+      const item = sessionHistory[idx];
+      if (!item) return;
+      document.getElementById('question-input').value = item.q;
+      document.getElementById('session-panel').style.display = 'none';
+      // Scroll to top
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function toggleSessionPanel() {
+      const panel = document.getElementById('session-panel');
+      if (panel.style.display === 'none' || !panel.style.display) {
+        panel.style.display = 'block';
+      } else {
+        panel.style.display = 'none';
+      }
+    }
+
+    // ===== SPEED SYSTEM =====
+    const speedLabels = ['', '🐢 Bahut Dhire', '🚶 Dhire', '⚡ Normal', '🏃 Tez', '🚀 Bahut Tez'];
+    const speedDelays = { 1: 55, 2: 30, 3: 14, 4: 6, 5: 1 };
+
+    function setSpeed(val) {
+      speedValue = val;
+      document.getElementById('speed-slider').value = val;
+      document.getElementById('speed-badge').textContent = speedLabels[val];
+      document.querySelectorAll('.speed-preset-btn').forEach((b, i) => {
+        b.classList.toggle('active', i + 1 === val);
+      });
+    }
+
+    document.getElementById('speed-slider').addEventListener('input', function () {
+      setSpeed(parseInt(this.value));
+    });
+
+    // ===== LANGUAGE =====
+    function setLang(lang) {
+      currentLang = lang;
+      const cfg = LANG_CONFIG[lang] || LANG_CONFIG.hindi;
+      document.getElementById('question-input').placeholder = cfg.placeholder;
+      document.getElementById('mic-status-text').textContent = cfg.micMsg;
+      if (lang === 'english') {
+        document.getElementById('upload-title').textContent = 'Upload your Homework or Book Page Photo';
+        document.getElementById('upload-sub').textContent = 'Drag & Drop or click the button below';
+        document.getElementById('ask-btn').textContent = '🧠 Ask AI — Get Your Answer!';
+        document.getElementById('q-head').textContent = 'Write or Speak your Question';
+      } else {
+        document.getElementById('upload-title').textContent = 'अपनी Homework या Book का Photo Upload करें';
+        document.getElementById('upload-sub').textContent = 'Drag & Drop करें या नीचे Button दबाएं';
+        document.getElementById('ask-btn').textContent = '🧠 AI से पूछें — जवाब पाएं!';
+        document.getElementById('q-head').textContent = 'अपना सवाल लिखें या बोलें';
+      }
+      if (isListening) { stopMic(); startMic(); }
+    }
+
+    // ===== MIC =====
+    let micManager = null;
+
+    function toggleMic() {
+      if (micManager && micManager.active) micManager.stop();
+      else startMicManager();
+    }
+
+    function startMicManager() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        showError('❌ Chrome ya Edge browser use karein — mic ke liye!');
+        return;
+      }
+      const ta = document.getElementById('question-input');
+      const statusEl = document.getElementById('mic-status-text');
+      let accumulated = ta.value;
+      if (accumulated && !accumulated.endsWith(' ')) accumulated += ' ';
+
+      micManager = {
+        active: true, rec: null,
+        createAndStart() {
+          if (!this.active) return;
+          const r = new SpeechRecognition();
+          r.lang = (LANG_CONFIG[currentLang] || LANG_CONFIG.hindi).speech;
+          r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+          this.rec = r;
+          r.onstart = () => {
+            isListening = true;
+            document.getElementById('mic-btn').classList.add('listening');
+            document.getElementById('mic-btn').textContent = '🔴';
+            document.getElementById('mic-status').classList.add('show');
+            statusEl.textContent = '🎙️ Sun raha hoon... baat karo! Rokne ke liye 🔴 dabao';
+          };
+          r.onresult = (e) => {
+            let interim = '';
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+              const t = e.results[i][0].transcript;
+              if (e.results[i].isFinal) { accumulated += t + ' '; }
+              else { interim += t; }
+            }
+            ta.value = (accumulated + interim).trim();
+            statusEl.textContent = '🎙️ Sun raha hoon... bolte raho! 🔴 dabao rokne ke liye';
+          };
+          r.onerror = (e) => {
+            if (e.error === 'not-allowed') { showError('❌ Mic permission do!'); this.stop(); return; }
+          };
+          r.onend = () => {
+            this.rec = null;
+            if (!this.active) return;
+            setTimeout(() => { if (this.active) this.createAndStart(); }, 120);
+          };
+          try { r.start(); }
+          catch (e) { setTimeout(() => { if (this.active) this.createAndStart(); }, 300); }
+        },
+        stop() {
+          this.active = false; isListening = false;
+          if (this.rec) { try { this.rec.stop(); } catch (e) { } this.rec = null; }
+          document.getElementById('mic-btn').classList.remove('listening');
+          document.getElementById('mic-btn').textContent = '🎤';
+          document.getElementById('mic-status').classList.remove('show');
+          micManager = null;
+        }
+      };
+      micManager.createAndStart();
+    }
+
+    function startMic() { startMicManager(); }
+    function stopMic() {
+      if (micManager) micManager.stop();
+      else {
+        isListening = false;
+        document.getElementById('mic-btn').classList.remove('listening');
+        document.getElementById('mic-btn').textContent = '🎤';
+        document.getElementById('mic-status').classList.remove('show');
+      }
+    }
+
+    // ===== FILE UPLOAD =====
+    function handleFileSelect(e) { const f = e.target.files[0]; if (f) processFile(f) }
+    function handleDrop(e) { e.preventDefault(); document.getElementById('upload-card').classList.remove('drag-over'); const f = e.dataTransfer.files[0]; if (f && f.type.startsWith('image/')) processFile(f) }
+    function handleDragOver(e) { e.preventDefault(); e.stopPropagation(); document.getElementById("upload-card").classList.add("drag-over") }
+    function handleDragLeave() { document.getElementById('upload-card').classList.remove('drag-over') }
+    function processFile(file) {
+      const r = new FileReader();
+      r.onload = function (ev) {
+        uploadedImageBase64 = ev.target.result.split(',')[1];
+        document.getElementById('preview-img').src = ev.target.result;
+        document.querySelector('#preview-name span').textContent = file.name;
+        document.getElementById('preview-wrap').classList.add('show');
+      };
+      r.readAsDataURL(file);
+    }
+    function removeImage() { uploadedImageBase64 = null; document.getElementById('preview-wrap').classList.remove('show'); document.getElementById('preview-img').src = ''; document.getElementById('file-input').value = '' }
+
+    // ===== LANGUAGE DETECTION FROM QUESTION TEXT =====
+    function detectQuestionLanguage(questionText, fallbackLangName) {
+      if (!questionText || questionText.trim().length < 3) return fallbackLangName;
+
+      // Unicode range checks for Indian scripts
+      const scriptRanges = [
+        { name: 'Tamil (தமிழ்)', regex: /[\u0B80-\u0BFF]/ },
+        { name: 'Telugu (తెలుగు)', regex: /[\u0C00-\u0C7F]/ },
+        { name: 'Kannada (ಕನ್ನಡ)', regex: /[\u0C80-\u0CFF]/ },
+        { name: 'Malayalam (മലയാളം)', regex: /[\u0D00-\u0D7F]/ },
+        { name: 'Bengali (বাংলা)', regex: /[\u0980-\u09FF]/ },
+        { name: 'Gujarati (ગુજરાતી)', regex: /[\u0A80-\u0AFF]/ },
+        { name: 'Punjabi (ਪੰਜਾਬੀ)', regex: /[\u0A00-\u0A7F]/ },
+        { name: 'Odia (ଓଡ଼ିଆ)', regex: /[\u0B00-\u0B7F]/ },
+        { name: 'Hindi (हिंदी)', regex: /[\u0900-\u097F]/ },
+      ];
+
+      for (const { name, regex } of scriptRanges) {
+        if (regex.test(questionText)) return name;
+      }
+
+      // If mostly English/Latin characters
+      const latinChars = (questionText.match(/[a-zA-Z]/g) || []).length;
+      const totalChars = questionText.replace(/\s/g, '').length;
+      if (latinChars / totalChars > 0.6) return 'English';
+
+      return fallbackLangName;
+    }
+
+    // ===== QUESTION COUNT DETECTION =====
+    function countQuestions(text) {
+      if (!text || text.trim().length < 3) return 1;
+      const numbered = text.match(/(?:^|\n)\s*(?:\d+[\.\)]\s|Q\d+|प्रश्न\s*\d+|सवाल\s*\d+)/gi);
+      if (numbered && numbered.length > 1) return numbered.length;
+      const qmarks = (text.match(/\?/g) || []).length;
+      if (qmarks > 1) return qmarks;
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 5);
+      if (lines.length > 1) return lines.length;
+      return 1;
+    }
+
+    // ===== DAILY 50-QUESTION LIMIT =====
+    function getDailyLimit() {
+      const key = 'vbs_daily_question_limit';
+      let data = null;
+      try { data = JSON.parse(localStorage.getItem(key)); } catch (e) { }
+      const now = Date.now();
+      if (!data || !data.resetTime || (now - data.resetTime) >= 86400000) {
+        data = { count: 0, resetTime: now };
+        localStorage.setItem(key, JSON.stringify(data));
+      }
+      return data;
+    }
+
+    function incrementDailyCount() {
+      const key = 'vbs_daily_question_limit';
+      const data = getDailyLimit();
+      data.count++;
+      localStorage.setItem(key, JSON.stringify(data));
+      updateLimitDisplay();
+    }
+
+    function updateLimitDisplay() {
+      const data = getDailyLimit();
+      const remaining = Math.max(0, 50 - data.count);
+      const el = document.getElementById('limit-display');
+      if (el) {
+        el.textContent = `Limit: ${remaining}/50`;
+        if (remaining <= 0) {
+          el.style.background = 'rgba(239,35,60,0.2)';
+          el.style.color = '#EF233C';
+        } else if (remaining <= 10) {
+          el.style.color = '#FFD166';
+        } else {
+          el.style.color = '#FFD60A';
+        }
+      }
+    }
+
+    function showLimitPopup(msg, autoHide = false) {
+      const existing = document.getElementById('limit-popup-overlay');
+      if (existing) existing.remove();
+      const overlay = document.createElement('div');
+      overlay.id = 'limit-popup-overlay';
+      overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;animation:fadeUp .3s ease;';
+      overlay.innerHTML = `
+      <div style="background:#1e1e2e;border:2px solid #F72585;border-radius:20px;padding:32px 28px;max-width:400px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+        <div style="font-size:2.5rem;margin-bottom:12px;">⚠️</div>
+        <div style="font-size:1.1rem;font-weight:800;color:#fff;margin-bottom:10px;line-height:1.6;">${msg}</div>
+        ${autoHide ? '' : `<button onclick="document.getElementById('limit-popup-overlay').remove()" style="margin-top:16px;background:linear-gradient(135deg,#4361EE,#7209B7);color:#fff;border:none;border-radius:12px;padding:12px 32px;font-size:1rem;font-weight:800;cursor:pointer;font-family:var(--font);">ठीक है 👍</button>`}
+      </div>`;
+      document.body.appendChild(overlay);
+      if (autoHide) setTimeout(() => { if (overlay) overlay.remove(); }, 2000);
+    }
+
+    // ===== ASK =====
+    async function askQuestion() {
+      const question = document.getElementById('question-input').value.trim();
+      const classLevel = document.getElementById('class-select').value;
+      const cfg = LANG_CONFIG[currentLang] || LANG_CONFIG.hindi;
+      const langName = cfg.name;
+
+      if (!question) { showError('कृपया पहले सवाल लिखें या बोलें!'); return }
+
+      // Check: 5 se zyada sawal?
+      let finalQuestion = question;
+      let qCount = question ? countQuestions(question) : 1;
+      if (qCount > 5) {
+        showLimitPopup('एक बार में केवल 5 सवालों के जवाब दिए जा सकते हैं।<br><br>दीदी AI पहले 5 सवालों का जवाब तैयार कर रही है... ⏳', true);
+        await new Promise(r => setTimeout(r, 1000));
+        qCount = 5;
+        finalQuestion = question + "\n\n(IMPORTANT: Answer ONLY the first 5 questions listed above. Do NOT skip any of the 5. Give complete detailed answer for each.)";
+      }
+
+      // Check: Daily 50 question limit
+      const dailyData = getDailyLimit();
+      if (dailyData.count >= 50) {
+        const hoursLeft = Math.ceil((86400000 - (Date.now() - dailyData.resetTime)) / 3600000);
+        showLimitPopup(`आपकी आज की 50 सवालों की limit पूरी हो गई है! 🚫<br><br>लगभग ${hoursLeft} घंटे बाद फिर से पूछ सकते हैं। ⏰`);
+        return;
+      }
+
+      currentQuestion = finalQuestion;
+      stopMic();
+      hideError();
+      setLoading(true);
+      setAnswers(false);
+      document.getElementById('empty-state').style.display = 'none';
+      document.getElementById('ask-btn').disabled = true;
+      document.getElementById('ask-again-btn').disabled = true;
+
+      try {
+        // DO NOT auto-detect language from question - USE SELECTED LANGUAGE ONLY
+        const selectedLangName = cfg.name;
+
+        const systemPrompt = `You are "Didi AI" (दीदी AI) — the most beloved, fun, caring AI teacher in India.
+
+CRITICAL RULES — FOLLOW STRICTLY:
+1. The student asked ${qCount} question(s). You MUST answer ALL ${qCount} question(s) — do NOT skip even one.
+2. If ${qCount} > 1: In the "teacher" field, format as:
+   "⭐ प्रश्न 1: [complete answer]\n\n⭐ प्रश्न 2: [complete answer]\n\n⭐ प्रश्न 3: [complete answer]..."
+   Continue until ALL ${qCount} questions are answered. NEVER stop early.
+3. If ${qCount} = 1: Answer directly with full detail.
+4. Language: ${selectedLangName} ONLY. If Hindi → use Devanagari script.
+5. Student: ${studentProfile ? studentProfile.name : 'Student'}, Class ${studentProfile ? studentProfile.class : classLevel}
+6. Be warm, encouraging, use examples, explain step-by-step like a loving teacher.
+7. "teacher" field MUST contain answers to ALL ${qCount} questions — this is the most important field.
+
+OUTPUT RULES — CRITICAL:
+- Return ONLY a valid JSON object. No markdown. No code blocks. No extra text before or after.
+- ALL field values must be ACTUAL CONTENT in ${selectedLangName} — NOT placeholder descriptions.
+- The "teacher" field must contain the REAL answer to the student's question(s).
+
+JSON FORMAT:
+{
+"teacher": "[Your actual warm greeting + real complete answer(s) to the question(s) here, in ${selectedLangName}]",
+"simple": "[Actual short 2-3 line summary of the answer, in ${selectedLangName}]",
+"steps": "[Actual numbered step-by-step solution, in ${selectedLangName}]",
+"example": "[Actual real-life example or story related to the topic, in ${selectedLangName}]",
+"practice": "[3 actual practice questions on this topic, in ${selectedLangName}]",
+"summary": "[One actual fun motivational line, in ${selectedLangName}]"
+}`;
+
+        let rawText;
+
+        // ===================================================
+        // 🔐 SECURE: API keys server par hain — yahan nahi!
+        // Sab requests /api/ask backend endpoint par jayengi
+        // ===================================================
+        const backendResp = await fetch(BACKEND_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question: finalQuestion,
+            imageBase64: uploadedImageBase64 || null,
+            systemPrompt,
+            selectedLangName
+          })
+        });
+
+        let backendData;
+        try {
+          backendData = await backendResp.json();
+        } catch (jsonErr) {
+          try {
+            const textResp = await backendResp.text();
+            if (textResp && textResp.length > 20) {
+              backendData = { rawText: textResp };
+            } else {
+              throw new Error('empty');
+            }
+          } catch (e2) {
+            throw new Error('❌ Server ka response samajh nahi aaya. Dobara try karein.');
+          }
+        }
+
+        if (!backendResp.ok || (backendData.error && !backendData.rawText)) {
+          throw new Error(backendData.message || backendData.error || '❌ Server se jawab nahi aaya. Thodi der baad try karein.');
+        }
+
+        rawText = backendData.rawText || backendData.text || backendData.response || backendData.answer || backendData.result || backendData.content || backendData.message || '';
+
+        if (typeof rawText === 'object') {
+          try { rawText = JSON.stringify(rawText); } catch (e) { rawText = ''; }
+        }
+
+        if (!rawText || rawText.length < 10) {
+          const keys = Object.keys(backendData);
+          for (let k of keys) {
+            if (typeof backendData[k] === 'string' && backendData[k].length > 20) {
+              rawText = backendData[k];
+              break;
+            }
+          }
+        }
+
+        if (!rawText || rawText.length < 10) {
+          throw new Error('❌ Server ne khaali jawab diya. Dobara try karein.');
+        }
+        console.log('✅ Backend API success, rawText length:', rawText.length);
+
+        let parsed;
+        try {
+          let clean = rawText.trim()
+            .replace(/^```json\s*/i, '').replace(/^```\s*/, '')
+            .replace(/\s*```$/, '').trim();
+          const m = clean.match(/\{[\s\S]*\}/);
+          const jsonStr = m ? m[0] : clean;
+          parsed = JSON.parse(jsonStr);
+        } catch (e) {
+          console.log('⚠️ JSON parse failed, using robust fallback');
+          parsed = { teacher: '', simple: '', steps: '', example: '', practice: '', summary: '' };
+
+          const fields = ['teacher', 'simple', 'steps', 'example', 'practice', 'summary'];
+          fields.forEach((f, idx) => {
+            const nextField = fields[idx + 1];
+            let regex;
+            if (nextField) {
+              regex = new RegExp(`"${f}"\\s*:\\s*"([\\s\\S]*?)"\\s*,\\s*"${nextField}"`, 'i');
+            } else {
+              regex = new RegExp(`"${f}"\\s*:\\s*"([\\s\\S]*?)"\\s*\\}`, 'i');
+            }
+            const match = rawText.match(regex);
+            if (match) {
+              parsed[f] = match[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\t/g, '\t');
+            }
+          });
+
+          if (!parsed.teacher) {
+            fields.forEach(f => {
+              const r = new RegExp(`"${f}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`, 'i');
+              const match = rawText.match(r);
+              if (match && !parsed[f]) {
+                parsed[f] = match[1].replace(/\\n/g, '\n').replace(/\\"/g, '"');
+              }
+            });
+          }
+
+          if (!parsed.teacher) {
+            let text = rawText.replace(/```json|```/gi, '').replace(/[{}]/g, '').trim();
+            text = text.replace(/"teacher"\s*:\s*/i, '').replace(/"simple"\s*:\s*.*/i, '');
+            parsed.teacher = text.substring(0, 5000).trim() || 'जवाब मिला लेकिन format सही नहीं था। कृपया दोबारा पूछें।';
+          }
+        }
+
+        if (!parsed.teacher || parsed.teacher.trim().length < 5) {
+          parsed.teacher = rawText.replace(/```json|```|[{}"]/gi, '').trim().substring(0, 5000) || 'कृपया दोबारा पूछें।';
+        }
+
+        // NO COMBINING FRAGMENTS — Use the full teacher answer
+        lastAnswers = parsed;
+        addToSession(question || '📷 Image sawaal', parsed.teacher);
+        incrementDailyCount();
+
+        setLoading(false);
+        displayAnswers(parsed);
+
+      } catch (err) {
+        setLoading(false);
+        console.error('❌ askQuestion error:', err);
+        showError('⚠️ ' + (err.message || 'Kuch galat hua. Dobara try karein.'));
+        document.getElementById('ask-btn').disabled = false;
+        document.getElementById('ask-again-btn').disabled = false;
+      }
+    }
+
+    // ===== DISPLAY ANSWERS — Word-by-word glow typing =====
+    function displayAnswers(data) {
+      if (!data) data = {};
+      if (!data.teacher || data.teacher.trim().length < 3) {
+        data.teacher = data.simple || data.steps || data.example || 'जवाब प्राप्त हुआ। कृपया दोबारा पूछें अगर कुछ समझ नहीं आया।';
+      }
+      const delay = speedDelays[speedValue] || 30;
+      ['text-teacher', 'text-simple', 'text-steps', 'text-example', 'text-practice', 'text-summary']
+        .forEach(id => { document.getElementById(id).innerHTML = ''; });
+      setAnswers(true);
+      document.getElementById('simple-ans-container').classList.remove('show');
+      document.getElementById('ask-again-btn').disabled = true;
+
+      const stagger = speedValue >= 4 ? 60 : speedValue === 3 ? 200 : speedValue === 2 ? 400 : 700;
+
+      const LINE_COLORS = [
+        '#60A5FA', '#34D399', '#F472B6', '#FBBF24', '#A78BFA',
+        '#38BDF8', '#FB923C', '#4ADE80', '#E879F9', '#F87171'
+      ];
+
+      const cards = [
+        ['text-teacher', applyHinglish(data.teacher || '')],
+        ['text-simple', applyHinglish(data.simple || '')],
+        ['text-steps', applyHinglish(data.steps || '')],
+        ['text-example', applyHinglish(data.example || '')],
+        ['text-practice', applyHinglish(data.practice || '')],
+        ['text-summary', applyHinglish(data.summary || '')],
+      ];
+
+      let doneCount = 0;
+      let allDoneTriggered = false;
+
+      function allDone() {
+        if (allDoneTriggered) return;
+        allDoneTriggered = true;
+        document.getElementById('ask-btn').disabled = false;
+        document.getElementById('ask-again-btn').disabled = false;
+        // Start speaking after teacher card is done
+        setTimeout(() => {
+          if (lastAnswers && lastAnswers.teacher) speakTeacherWithGlow();
+        }, 800);
+        // Board triggers ONLY after speech ends via onSpeakEnd — NOT here
+      }
+
+      function onCardTyped() {
+        doneCount++;
+        if (doneCount >= cards.length) allDone();
+      }
+
+      cards.forEach(([id, raw], idx) => {
+        typeWordGlow(id, formatText(raw), delay, stagger * idx, LINE_COLORS, onCardTyped);
+      });
+
+      // Safety net: if callbacks never fire (e.g. all cards empty), unlock after 30s max
+      setTimeout(() => allDone(), 30000);
+    }
+
+    function formatText(text) {
+      return String(text || '')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/Step (\d+):/gi, '<strong style="color:#34D399">Step $1:</strong>')
+        .replace(/(\d+)\.\s/g, '<strong style="color:#818CF8">$1. </strong>')
+        .replace(/\n/g, '<br>');
+    }
+
+    // ===== Word-by-word glow typing — iterative, never truncates =====
+    function typeWordGlow(elemId, html, delayMs, startDelay, LINE_COLORS, onDone) {
+      const el = document.getElementById(elemId);
+      if (!el) { if (onDone) onDone(); return; }
+
+      // Instant speed
+      if (delayMs <= 2) {
+        setTimeout(() => {
+          el.innerHTML = buildColoredSpans(html, LINE_COLORS);
+          el.querySelectorAll('.word-span').forEach(s => s.classList.add('typed'));
+          if (onDone) onDone();
+        }, startDelay);
+        return;
+      }
+
+      // Extract plain words keeping line structure
+      const temp = document.createElement('div');
+      temp.innerHTML = html;
+      const plain = temp.textContent || temp.innerText || '';
+
+      const lines = plain.split('\n');
+      let words = [];
+      lines.forEach((line, li) => {
+        const color = LINE_COLORS[li % LINE_COLORS.length];
+        if (!line.trim()) { words.push({ isBreak: true }); return; }
+        line.split(/(\s+)/).forEach(part => {
+          if (/^\s+$/.test(part) || !part) return;
+          words.push({ word: part, color });
+        });
+        if (li < lines.length - 1) words.push({ isBreak: true });
+      });
+
+      if (words.length === 0) {
+        el.innerHTML = buildColoredSpans(html, LINE_COLORS);
+        el.querySelectorAll('.word-span').forEach(s => s.classList.add('typed'));
+        if (onDone) onDone();
+        return;
+      }
+
+      // Safety: if answer is very long (>500 words), reduce delay to prevent slow display
+      const effectiveDelay = words.length > 300 ? Math.min(delayMs, 15) :
+        words.length > 150 ? Math.min(delayMs, 25) : delayMs;
+
+      setTimeout(() => {
+        el.innerHTML = '';
+        let i = 0;
+        let lastGlowSpan = null;
+
+        const timer = setInterval(() => {
+          // Process multiple words per tick for smoother display of long answers
+          const batch = effectiveDelay < 10 ? 3 : 1;
+          for (let b = 0; b < batch && i < words.length; b++) {
+            const item = words[i++];
+            if (item.isBreak) {
+              el.appendChild(document.createElement('br'));
+              continue;
+            }
+            // Remove glow from previous word
+            if (lastGlowSpan) {
+              lastGlowSpan.classList.remove('typing-glow');
+              lastGlowSpan.classList.add('typed');
+              lastGlowSpan = null;
+            }
+            const span = document.createElement('span');
+            span.className = 'word-span typing-glow';
+            span.style.setProperty('--wc', item.color);
+            span.setAttribute('data-word', item.word);
+            span.textContent = item.word + ' ';
+            el.appendChild(span);
+            lastGlowSpan = span;
+          }
+
+          if (i >= words.length) {
+            clearInterval(timer);
+            // Final: apply full formatted colored HTML
+            setTimeout(() => {
+              el.innerHTML = buildColoredSpans(html, LINE_COLORS);
+              el.querySelectorAll('.word-span').forEach(s => s.classList.add('typed'));
+              if (onDone) onDone();
+            }, 100);
+          }
+        }, effectiveDelay);
+
+      }, startDelay);
+    }
+
+    // Build colored spans for final settled state
+    function buildColoredSpans(html, LINE_COLORS) {
+      const temp = document.createElement('div');
+      temp.innerHTML = html;
+      const plain = temp.textContent || temp.innerText || '';
+      const lines = plain.split('\n');
+      let result = '';
+      lines.forEach((line, li) => {
+        const color = LINE_COLORS[li % LINE_COLORS.length];
+        if (!line.trim()) { result += '<br>'; return; }
+        line.split(/(\s+)/).forEach(part => {
+          if (/^\s+$/.test(part)) { result += ' '; return; }
+          if (!part) return;
+          result += `<span class="word-span typed" style="--wc:${color}" data-color="${color}" data-word="${part.replace(/"/g, '&quot;')}">${part} </span>`;
+        });
+        if (li < lines.length - 1) result += '<br>';
+      });
+      return result;
+    }
+
+    function setLoading(show) { document.getElementById('loading-wrap').classList.toggle('show', show) }
+    function setAnswers(show) { document.getElementById('answers-wrap').classList.toggle('show', show) }
+    function showError(msg) { document.getElementById('error-text').textContent = msg; document.getElementById('error-box').classList.add('show') }
+    function hideError() { document.getElementById('error-box').classList.remove('show') }
+
+    function clearAll() {
+      document.getElementById('question-input').value = '';
+      removeImage(); setAnswers(false); setLoading(false); hideError();
+      document.getElementById('ask-btn').disabled = false;
+      document.getElementById('ask-again-btn').disabled = true;
+      document.getElementById('empty-state').style.display = 'block';
+      stopMic();
+      stopTeacherSpeak();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function askAgain() {
+      document.getElementById('question-input').value = '';
+      setAnswers(false);
+      document.getElementById('empty-state').style.display = 'none';
+      document.getElementById('ask-btn').disabled = false;
+      document.getElementById('ask-again-btn').disabled = true;
+      document.getElementById('question-input').focus();
+      window.speechSynthesis.cancel();
+      isSpeaking = false;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // Extended Hindi map — Roman English → Devanagari (only for words AI still writes in English)
+    const hinglishMap = {
+      // Math
+      'addition': 'जोड़', 'subtraction': 'घटाव', 'multiplication': 'गुणा', 'division': 'भाग',
+      'fraction': 'भिन्न', 'decimal': 'दशमलव', 'percentage': 'प्रतिशत', 'ratio': 'अनुपात',
+      'algebra': 'बीजगणित', 'geometry': 'ज्यामिति', 'triangle': 'त्रिभुज', 'circle': 'वृत्त',
+      'square': 'वर्ग', 'rectangle': 'आयत', 'area': 'क्षेत्रफल', 'perimeter': 'परिमाप',
+      'volume': 'आयतन', 'angle': 'कोण', 'formula': 'सूत्र', 'equation': 'समीकरण',
+      'number': 'संख्या', 'numbers': 'संख्याएं', 'total': 'कुल', 'result': 'परिणाम',
+      'plus': '+', 'minus': '-', 'equal': 'बराबर', 'equals': 'बराबर', 'answer': 'जवाब',
+      // Science
+      'photosynthesis': 'प्रकाश संश्लेषण', 'cell': 'कोशिका', 'atom': 'परमाणु',
+      'molecule': 'अणु', 'gravity': 'गुरुत्वाकर्षण', 'energy': 'ऊर्जा', 'force': 'बल',
+      'light': 'प्रकाश', 'water': 'पानी', 'air': 'वायु', 'earth': 'पृथ्वी',
+      // Common words
+      'step': 'चरण', 'steps': 'चरण', 'example': 'उदाहरण', 'practice': 'अभ्यास',
+      'summary': 'सारांश', 'simple': 'सरल', 'easy': 'आसान', 'hard': 'कठिन',
+      'question': 'सवाल', 'correct': 'सही', 'wrong': 'गलत',
+      'remember': 'याद रखो', 'understand': 'समझो', 'learn': 'सीखो',
+      'school': 'विद्यालय', 'teacher': 'शिक्षक', 'student': 'छात्र', 'class': 'कक्षा',
+      'book': 'किताब', 'homework': 'गृहकार्य', 'exam': 'परीक्षा', 'test': 'परीक्षा',
+      'first': 'पहला', 'second': 'दूसरा', 'third': 'तीसरा', 'fourth': 'चौथा',
+      'point': 'बिंदु', 'rule': 'नियम', 'method': 'तरीका', 'process': 'प्रक्रिया',
+      // Units
+      'centimeter': 'सेंटीमीटर', 'centimeters': 'सेंटीमीटर', 'meter': 'मीटर', 'meters': 'मीटर',
+      'kilometer': 'किलोमीटर', 'kilometers': 'किलोमीटर', 'kilogram': 'किलोग्राम',
+      'gram': 'ग्राम', 'liter': 'लीटर', 'second': 'सेकंड', 'minute': 'मिनट',
+      'hour': 'घंटा', 'hours': 'घंटे', 'day': 'दिन', 'days': 'दिन',
+    };
+
+    function applyHinglish(text) {
+      text = Array.isArray(text) ? text.join('\n') : String(text ?? '');
+      if (currentLang === 'english') return text;
+      if (currentLang !== 'hindi') return text; // Only convert for Hindi mode
+      // Replace standalone English words that are common Hindi-transliterated words
+      return text.replace(/\b([A-Za-z]{3,})\b/g, (match) => {
+        return hinglishMap[match.toLowerCase()] || match;
+      });
+    }
+
+    // ===== WORD-BY-WORD GLOW SPEAKING SYSTEM =====
+    let currentUtterance = null;
+    let speakRate = 0.85;
+    let isSpeaking = false;
+    let wordSpans = [];
+    let spokenWordCount = 0;
+
+    const LINE_COLORS_SPEAK = [
+      '#60A5FA', '#34D399', '#F472B6', '#FBBF24', '#A78BFA',
+      '#38BDF8', '#FB923C', '#4ADE80', '#E879F9', '#F87171'
+    ];
+
+    function toggleTeacherSpeak() {
+      if (isSpeaking) stopTeacherSpeak();
+      else speakTeacherWithGlow();
+    }
+
+    function speakTeacherWithGlow() {
+      const el = document.getElementById('text-teacher');
+      if (!el || !el.innerText.trim()) return;
+      window.speechSynthesis.cancel();
+      spokenWordCount = 0;
+
+      buildSpeakWordSpans(el);
+
+      const speakTextStr = wordSpans.map(s => s.getAttribute('data-word')).join(' ');
+      const cfg = LANG_CONFIG[currentLang] || LANG_CONFIG.hindi;
+
+      function doSpeak(voice, useLang) {
+        const utt = new SpeechSynthesisUtterance(speakTextStr);
+        utt.lang = useLang || cfg.speech;
+        utt.pitch = 1.1;
+        utt.rate = speakRate;
+        if (voice) utt.voice = voice;
+        currentUtterance = utt;
+
+        utt.onstart = () => {
+          isSpeaking = true;
+          document.getElementById('teacher-avatar').classList.add('talking');
+          const btn = document.getElementById('teacher-speak-btn');
+          btn.classList.add('speaking');
+          btn.innerHTML = '🔴 बोल रही हूँ...';
+          document.getElementById('speak-controls').classList.add('show');
+
+          window.speechKeepAlive = setInterval(() => {
+            if (window.speechSynthesis.speaking) {
+              window.speechSynthesis.pause();
+              window.speechSynthesis.resume();
+            } else {
+              clearInterval(window.speechKeepAlive);
+            }
+          }, 10000);
+        };
+
+        utt.onboundary = (e) => {
+          if (e.name !== 'word') return;
+          const charIndex = e.charIndex;
+          let cumLen = 0;
+          for (let i = 0; i < wordSpans.length; i++) {
+            const wLen = wordSpans[i].getAttribute('data-word').length;
+            if (charIndex >= cumLen && charIndex < cumLen + wLen + 1) {
+              wordSpans.forEach(s => { s.classList.remove('typing-glow'); s.classList.add('typed'); });
+              wordSpans[i].classList.remove('typed');
+              wordSpans[i].classList.add('typing-glow');
+              spokenWordCount = i;
+              // Removed automatic word-by-word scrolling
+              break;
+            }
+            cumLen += wLen + 1;
+          }
+        };
+
+        utt.onend = () => { clearInterval(window.speechKeepAlive); onSpeakEnd(true); };
+        utt.onerror = (e) => { clearInterval(window.speechKeepAlive); if (e.error !== 'interrupted') onSpeakEnd(false); };
+
+        window.speechSynthesis.speak(utt);
+      }
+
+      // Smart voice picker — find best matching voice for current language
+      function getBestVoice(langCode, callback) {
+        let called = false;
+        function done(v) {
+          if (called) return;
+          called = true;
+          callback(v);
+        }
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length > 0) {
+          done(pickVoice(voices, langCode));
+        } else {
+          window.speechSynthesis.onvoiceschanged = () => {
+            if (!called) done(pickVoice(window.speechSynthesis.getVoices(), langCode));
+          };
+          // Retry after 1.5s if voices still not loaded
+          setTimeout(() => {
+            if (!called) {
+              const v2 = window.speechSynthesis.getVoices();
+              done(v2.length > 0 ? pickVoice(v2, langCode) : { voice: null, lang: langCode });
+            }
+          }, 1500);
+        }
+      }
+
+      function pickVoice(voices, langCode) {
+        if (!voices || voices.length === 0) return { voice: null, lang: langCode };
+        const lang = langCode.toLowerCase();
+        const primary = lang.split('-')[0];
+
+        // 1. Exact match - BEST
+        let v = voices.find(v => v.lang.toLowerCase() === lang);
+        if (v) return { voice: v, lang: langCode };
+
+        // 2. Same primary with any region (e.g. hi-US for hi-IN)
+        v = voices.find(v => v.lang.toLowerCase().startsWith(primary + '-'));
+        if (v) return { voice: v, lang: v.lang };
+
+        // 3. Primary language only (no region)
+        v = voices.find(v => v.lang.toLowerCase() === primary);
+        if (v) return { voice: v, lang: v.lang };
+
+        // 4. Special handling for Indian languages
+        if (primary === 'hi') {
+          // For Hindi: try hi-IN, hi, en-IN, en
+          const hindiVoice = voices.find(v => v.lang.toLowerCase() === 'hi-in') ||
+            voices.find(v => v.lang.toLowerCase().startsWith('hi'));
+          if (hindiVoice) return { voice: hindiVoice, lang: 'hi-IN' };
+
+          const enInVoice = voices.find(v => v.lang.toLowerCase() === 'en-in') ||
+            voices.find(v => v.lang.toLowerCase().startsWith('en-in'));
+          if (enInVoice) return { voice: enInVoice, lang: 'en-IN' };
+        }
+
+        if (primary !== 'en') {
+          // For other Indian languages: try same language, then en-IN, then en
+          const sameRegion = voices.find(v => v.lang.toLowerCase().startsWith(primary + '-in'));
+          if (sameRegion) return { voice: sameRegion, lang: sameRegion.lang };
+
+          const enInVoice = voices.find(v => v.lang.toLowerCase() === 'en-in') ||
+            voices.find(v => v.lang.toLowerCase().startsWith('en-in'));
+          if (enInVoice) return { voice: enInVoice, lang: 'en-IN' };
+        }
+
+        // 5. Any English voice as last resort
+        const enVoice = voices.find(v => v.lang.toLowerCase().startsWith('en'));
+        if (enVoice) return { voice: enVoice, lang: enVoice.lang };
+
+        // 6. Any voice available (desperate fallback)
+        if (voices.length > 0) return { voice: voices[0], lang: langCode };
+
+        return { voice: null, lang: langCode };
+      }
+
+      getBestVoice(cfg.speech, (result) => doSpeak(result.voice, result.lang));
+    }
+
+    function buildSpeakWordSpans(el) {
+      wordSpans = [];
+      const rawText = el.innerText || '';
+      const lines = rawText.split('\n');
+      let html = '';
+      let wordIdx = 0;
+      lines.forEach((line, lineIdx) => {
+        const color = LINE_COLORS_SPEAK[lineIdx % LINE_COLORS_SPEAK.length];
+        if (!line.trim()) { html += '<br>'; return; }
+        line.split(/(\s+)/).forEach(part => {
+          if (/^\s+$/.test(part)) { html += ' '; return; }
+          if (!part) return;
+          // Sanitize the spoken version: remove emojis, reduce multiple underscores to one, remove quotes
+          let speakPart = part.replace(/"/g, '')
+            .replace(/_{2,}/g, '_') // say underscore only once
+            .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\u200d\uFE0F]/gu, ''); // bypass emojis
+
+          html += `<span class="word-span typed" id="ws-${wordIdx}" data-word="${speakPart}" data-color="${color}" style="--wc:${color}">${part} </span>`;
+          wordIdx++;
+        });
+        if (lineIdx < lines.length - 1) html += '<br>';
+      });
+      el.innerHTML = html;
+      wordSpans = Array.from(el.querySelectorAll('.word-span'));
+    }
+
+    function onSpeakEnd(showDialog) {
+      isSpeaking = false;
+      currentUtterance = null;
+      // All words back to line color
+      wordSpans.forEach(s => {
+        s.classList.remove('typing-glow');
+        s.classList.add('typed');
+      });
+      document.getElementById('teacher-avatar').classList.remove('talking');
+      const btn = document.getElementById('teacher-speak-btn');
+      btn.classList.remove('speaking');
+      btn.innerHTML = '🔊 आवाज़ सुनें';
+      document.getElementById('speak-controls').classList.remove('show');
+
+      if (showDialog) {
+        setTimeout(() => showSamjhaDialog(), 600);
+      }
+    }
+
+    function stopTeacherSpeak() {
+      window.speechSynthesis.cancel();
+      onSpeakEnd(false);
+    }
+
+    function updateSpeakRate(val) {
+      speakRate = parseFloat(val);
+      document.getElementById('speak-rate-val').textContent = parseFloat(val).toFixed(1) + 'x';
+      if (isSpeaking) {
+        window.speechSynthesis.cancel();
+        setTimeout(() => speakTeacherWithGlow(), 150);
+      }
+    }
+
+    // autoSpeak is now handled directly in displayAnswers after all cards are done
+
+    // ===== MULTILINGUAL UI STRINGS =====
+    // All popup/toast/dialog text in each language
+    const UI_STRINGS = {
+      'Hindi (हिंदी)': {
+        samjha_title: 'क्या समझ आया? 😊',
+        samjha_sub: 'दीदी AI जानना चाहती है — सब clear हुआ?',
+        samjha_yes: '✅ हाँ! समझ आया! आगे बढ़ो 🚀',
+        samjha_no: '🔄 नहीं, दूसरे Example से समझाओ',
+        samjha_wait: '💬 अपना जवाब दो — दीदी इंतज़ार करेंगी! 😊',
+        understood_toast: '🎉 वाह! बहुत बढ़िया! अगली बार और भी अच्छा करोगे! 💪',
+        new_example_toast: '🔄 दीदी नया example ढूंढ रही हैं... एक पल रुको! ✨',
+      },
+      'Tamil (தமிழ்)': {
+        samjha_title: 'புரிந்துவிட்டதா? 😊',
+        samjha_sub: 'தீதி AI தெரிந்துகொள்ள விரும்புகிறாள் — எல்லாம் clear ஆச்சா?',
+        samjha_yes: '✅ ஆமா! புரிஞ்சுடுச்சு! முன்னே போலாம் 🚀',
+        samjha_no: '🔄 இல்லை, வேற Example-ல் சொல்லு',
+        samjha_wait: '💬 உன் பதில் சொல்லு — தீதி காத்திருக்காள்! 😊',
+        understood_toast: '🎉 வாவ்! மிகவும் நல்லா! அடுத்த முறை இன்னும் நல்லா செய்வே! 💪',
+        new_example_toast: '🔄 தீதி புதிய example தேடுகிறாள்... ஒரு நிமிஷம்! ✨',
+      },
+      'Telugu (తెలుగు)': {
+        samjha_title: 'అర్థమైందా? 😊',
+        samjha_sub: 'దీదీ AI తెలుసుకోవాలని ఉంది — అన్నీ clear అయిందా?',
+        samjha_yes: '✅ అవును! అర్థమైంది! ముందుకు వెళ్దాం 🚀',
+        samjha_no: '🔄 లేదు, వేరే Example తో చెప్పు',
+        samjha_wait: '💬 నీ జవాబు చెప్పు — దీదీ వేచి ఉంటుంది! 😊',
+        understood_toast: '🎉 వావ్! చాలా బాగుంది! తర్వాత సారి ఇంకా బాగా చేస్తావు! 💪',
+        new_example_toast: '🔄 దీదీ కొత్త example వెతుకుతోంది... ఒక్క నిమిషం! ✨',
+      },
+      'Bengali (বাংলা)': {
+        samjha_title: 'বুঝতে পারলে? 😊',
+        samjha_sub: 'দিদি AI জানতে চায় — সব clear হয়েছে?',
+        samjha_yes: '✅ হ্যাঁ! বুঝে গেছি! এগিয়ে যাই 🚀',
+        samjha_no: '🔄 না, অন্য Example দিয়ে বোঝাও',
+        samjha_wait: '💬 তোমার উত্তর দাও — দিদি অপেক্ষা করবে! 😊',
+        understood_toast: '🎉 দারুণ! পরের বার আরও ভালো করবে! 💪',
+        new_example_toast: '🔄 দিদি নতুন example খুঁজছে... একটু অপেক্ষা করো! ✨',
+      },
+      'Kannada (ಕನ್ನಡ)': {
+        samjha_title: 'ಅರ್ಥವಾಯಿತಾ? 😊',
+        samjha_sub: 'ದೀದಿ AI ತಿಳಿದುಕೊಳ್ಳಲು ಬಯಸುತ್ತಾಳೆ — ಎಲ್ಲಾ clear ಆಯಿತಾ?',
+        samjha_yes: '✅ ಹೌದು! ಅರ್ಥವಾಯಿತು! ಮುಂದೆ ಹೋಗೋಣ 🚀',
+        samjha_no: '🔄 ಇಲ್ಲ, ಬೇರೆ Example ನಲ್ಲಿ ಹೇಳು',
+        samjha_wait: '💬 ನಿನ್ನ ಉತ್ತರ ಹೇಳು — ದೀದಿ ಕಾಯುತ್ತಾಳೆ! 😊',
+        understood_toast: '🎉 ವಾಹ್! ಮುಂದಿನ ಬಾರಿ ಇನ್ನೂ ಚೆನ್ನಾಗಿ ಮಾಡುತ್ತೀಯ! 💪',
+        new_example_toast: '🔄 ದೀದಿ ಹೊಸ example ಹುಡುಕುತ್ತಿದ್ದಾಳೆ... ಒಂದು ನಿಮಿಷ! ✨',
+      },
+      'Malayalam (മലയാളം)': {
+        samjha_title: 'മനസ്സിലായോ? 😊',
+        samjha_sub: 'ദീദി AI അറിയണം — എല്ലാം clear ആയോ?',
+        samjha_yes: '✅ ആയി! മനസ്സിലായി! മുന്നോട്ട് പോകാം 🚀',
+        samjha_no: '🔄 ഇല്ല, വേറൊരു Example ൽ പറഞ്ഞുതാ',
+        samjha_wait: '💬 നിന്റെ ഉത്തരം പറയൂ — ദീദി കാക്കും! 😊',
+        understood_toast: '🎉 വൌ! അടുത്ത തവണ ഇനിയും നന്നാവും! 💪',
+        new_example_toast: '🔄 ദീദി പുതിയ example തിരയുകയാണ്... ഒരു നിമിഷം! ✨',
+      },
+      'Gujarati (ગુજરાતી)': {
+        samjha_title: 'સમજ આવ્યું? 😊',
+        samjha_sub: 'દીદી AI જાણવા માગે છે — બધું clear થયું?',
+        samjha_yes: '✅ હા! સમજ આવ્યું! આગળ વધીએ 🚀',
+        samjha_no: '🔄 ના, બીજા Example થી સમજાવ',
+        samjha_wait: '💬 તારો જવાબ આપ — દીદી રાહ જોશે! 😊',
+        understood_toast: '🎉 વાહ! આવતી વખતે વધુ સારું કરીશ! 💪',
+        new_example_toast: '🔄 દીદી નવું example શોધી રહી છે... એક ક્ષણ! ✨',
+      },
+      'Punjabi (ਪੰਜਾਬੀ)': {
+        samjha_title: 'ਸਮਝ ਆਇਆ? 😊',
+        samjha_sub: 'ਦੀਦੀ AI ਜਾਣਨਾ ਚਾਹੁੰਦੀ ਹੈ — ਸਭ clear ਹੋਇਆ?',
+        samjha_yes: '✅ ਹਾਂ! ਸਮਝ ਆ ਗਿਆ! ਅੱਗੇ ਵਧੋ 🚀',
+        samjha_no: '🔄 ਨਹੀਂ, ਵੱਖਰੇ Example ਨਾਲ ਸਮਝਾਓ',
+        samjha_wait: '💬 ਆਪਣਾ ਜਵਾਬ ਦਿਓ — ਦੀਦੀ ਉਡੀਕ ਕਰੇਗੀ! 😊',
+        understood_toast: '🎉 ਵਾਹ! ਅਗਲੀ ਵਾਰ ਹੋਰ ਵਧੀਆ ਕਰੋਗੇ! 💪',
+        new_example_toast: '🔄 ਦੀਦੀ ਨਵਾਂ example ਲੱਭ ਰਹੀ ਹੈ... ਇੱਕ ਪਲ! ✨',
+      },
+      'English': {
+        samjha_title: 'Did you understand? 😊',
+        samjha_sub: 'Didi AI wants to know — is everything clear?',
+        samjha_yes: '✅ Yes! I got it! Let\'s move on 🚀',
+        samjha_no: '🔄 No, explain with a different example',
+        samjha_wait: '💬 Give your answer — Didi is waiting! 😊',
+        understood_toast: '🎉 Wow! You\'ll do even better next time! 💪',
+        new_example_toast: '🔄 Didi is finding a new example... one moment! ✨',
+      },
+    };
+
+    function getUIStrings() {
+      const cfg = LANG_CONFIG[currentLang] || LANG_CONFIG.hindi;
+      // Try exact match first, then partial match, then Hindi default
+      if (UI_STRINGS[cfg.name]) return UI_STRINGS[cfg.name];
+      const key = Object.keys(UI_STRINGS).find(k => cfg.name.includes(k.split(' ')[0]) || k.includes(cfg.name.split(' ')[0]));
+      return UI_STRINGS[key] || UI_STRINGS['Hindi (हिंदी)'];
+    }
+
+    // ===== SAMJHA? DIALOG =====
+    let samjhaTimer = null;
+
+    function showSamjhaDialog() {
+      // Remove any existing inline panel
+      const old = document.getElementById('samjha-inline');
+      if (old) old.remove();
+      if (samjhaTimer) clearTimeout(samjhaTimer);
+
+      const s = getUIStrings();
+      const panel = document.createElement('div');
+      panel.id = 'samjha-inline';
+      panel.style.cssText = 'margin-top:16px;background:linear-gradient(135deg,rgba(67,97,238,0.15),rgba(114,9,183,0.12));border:2px solid rgba(67,97,238,0.5);border-radius:16px;padding:20px 24px;text-align:center;animation:fadeUp .4s ease;';
+      panel.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;justify-content:center">
+        <div style="font-size:2rem;animation:floatAvatar 2s ease-in-out infinite">👩‍🏫</div>
+        <div style="text-align:left">
+          <div style="font-size:1rem;font-weight:900;color:#fff">${s.samjha_title}</div>
+          <div style="font-size:0.88rem;color:#94A3B8;margin-top:2px">${s.samjha_sub}</div>
+        </div>
+      </div>
+      <div style="font-size:0.82rem;color:#60A5FA;margin-bottom:14px;font-weight:700">अगर समझ नहीं आया तो नीचे Smart Board पर और आसान तरीके से समझाएंगे! ⬇️</div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <button onclick="samjhaResponse(true)" style="background:linear-gradient(135deg,#06D6A0,#059669);color:#fff;border:none;border-radius:12px;padding:10px 18px;font-size:0.9rem;font-weight:800;cursor:pointer;font-family:var(--font)">${s.samjha_yes}</button>
+        <button onclick="samjhaResponse(false)" style="background:linear-gradient(135deg,#F72585,#7209B7);color:#fff;border:none;border-radius:12px;padding:10px 18px;font-size:0.9rem;font-weight:800;cursor:pointer;font-family:var(--font)">🔄 और आसान तरीके से समझाओ (Smart Board)</button>
+      </div>`;
+
+      // Insert inline below teacher card inside answers-wrap
+      const wrap = document.getElementById('answers-wrap');
+      if (wrap) wrap.appendChild(panel);
+      else document.body.appendChild(panel);
+      // Removed auto-scroll to popup
+    }
+
+    function samjhaResponse(understood) {
+      if (samjhaTimer) { clearTimeout(samjhaTimer); samjhaTimer = null; }
+      const d = document.getElementById('samjha-inline');
+      if (d) d.remove();
+
+      const s = getUIStrings();
+
+      if (understood) {
+        // Student understood! Show success toast and move on
+        const msg = document.createElement('div');
+        msg.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#06D6A0,#059669);color:#fff;border-radius:16px;padding:16px 28px;font-size:1rem;font-weight:800;z-index:9999;animation:fadeUp .3s ease;font-family:var(--font);text-align:center';
+        msg.textContent = s.understood_toast;
+        document.body.appendChild(msg);
+        setTimeout(() => { msg.remove(); askAgain(); }, 2200);
+      } else {
+        // Student wants more help — explain on Smart Answer Board!
+        stopTeacherSpeak();
+        const ws = document.getElementById('math-workspace');
+        if (ws) {
+          const rect = ws.getBoundingClientRect();
+          const top = rect.top + window.pageYOffset - 20;
+          window.scrollTo({ top: top, behavior: 'smooth' });
+          setTimeout(() => explainOnBoard(), 500);
+        } else {
+          explainOnBoard();
+        }
+      }
+    }
+
+    // ===== EXPLAIN ON BOARD — auto-triggered after every answer =====
+    async function explainOnBoard(mode) {
+      const origQ = currentQuestion || document.getElementById('question-input').value.trim() || 'this topic';
+      const cfg2 = LANG_CONFIG[currentLang] || LANG_CONFIG.hindi;
+      const langName = cfg2.name;
+
+      // ====================================================
+      // MATH FAST-PATH: client-side instant visual animation
+      // ====================================================
+      const area = document.getElementById('math-notebook-area');
+      if (!area) return;
+
+      // Extract clean question (remove any appended instructions)
+      const cleanQ = origQ.split('\n')[0].replace(/\(IMPORTANT[^)]*\)/gi, '').replace(/\(Note:[^)]*\)/gi, '').trim();
+      const quickMath = clientMathSolve(cleanQ);
+      if (quickMath) {
+        // Simple arithmetic detected — show visual school animation instantly!
+        renderMathAnimation(quickMath);
+        return;
+      }
+
+      // Show loading spinner for complex topics
+      area.style.background = '#ffffff';
+      area.style.border = '3px solid #4361EE';
+      area.style.borderRadius = '14px';
+      area.style.padding = '28px';
+      area.style.alignItems = 'center';
+      area.style.minHeight = '180px';
+      const isAuto = mode === 'auto';
+      area.innerHTML = `
+      <div style="text-align:center;animation:fadeUp .5s ease">
+        <div style="font-size:2.2rem;margin-bottom:10px">${isAuto ? '📌🖊️' : '🎨📌'}</div>
+        <div style="font-size:1.2rem;font-weight:900;color:#4361EE;margin-bottom:6px">${isAuto ? 'चलो Board पर इसे practically हल करते हैं!' : 'चलो! अब हम इसे Board पर समझाते हैं!'}</div>
+        <div style="font-size:0.9rem;color:#64748B;margin-bottom:16px">दीदी AI step-by-step practically दिखाएगी... 🌟</div>
+        <div style="display:inline-block;width:38px;height:38px;border:4px solid #4361EE;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite"></div>
+      </div>`;
+
+      if (!document.getElementById('spin-style')) {
+        const st = document.createElement('style');
+        st.id = 'spin-style';
+        st.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+        document.head.appendChild(st);
+      }
+
+      // Extract from teacher's answer for classroom board
+      const teacherText = (lastAnswers && lastAnswers.teacher) ? lastAnswers.teacher : '';
+      const stepsText = (lastAnswers && lastAnswers.steps) ? lastAnswers.steps : '';
+      const combinedText = (teacherText + '\n' + stepsText).trim();
+
+      if (combinedText.length > 50) {
+        // Build a rich classroom-style explanation prompt — like a real teacher at a blackboard
+        const boardPrompt = `You are "Didi AI" — India's best, most loving classroom teacher.
+A student did NOT understand the topic explained above. Now you must teach it AGAIN on the Smart Answer Board — like a REAL teacher in a classroom.
+
+Teacher's previous explanation:
+"""${combinedText.substring(0, 3000)}"""
+
+Original question asked by student: "${origQ}"
+Language to use: ${langName}
+
+🎯 YOUR JOB: Re-teach this topic from scratch on the board — super clearly, step by step, with examples, like a real classroom teacher would.
+
+RETURN ONLY a valid JSON object with EXACTLY these keys (no extra text, no markdown):
+{
+  "topic": "Name of the topic/concept being taught (in ${langName})",
+  "concept": "Simple 1-2 line definition/concept explanation in ${langName} — use simple words a child understands",
+  "steps": ["Step 1: ...", "Step 2: ...", "Step 3: ...", ... up to 8 steps — each step clearly explained in ${langName}"],
+  "example": "One simple real-life example that makes this concept crystal clear (in ${langName})",
+  "trick": "One memory trick / shortcut / fun tip to remember this forever (in ${langName})",
+  "mistake": "One common mistake students make and how to avoid it (in ${langName})",
+  "practice": ["Practice Q1 in ${langName}", "Practice Q2 in ${langName}", "Practice Q3 in ${langName}"]
+}
+
+IMPORTANT RULES:
+1. Language: ALL text must be in ${langName} ONLY. Math symbols/numbers can stay.
+2. Steps must be detailed — each step should explain WHY, not just what.
+3. Example must be something from daily life (food, cricket, school, home).
+4. Trick must be fun and memorable.
+5. Keep it warm, encouraging, like talking to a child you love.
+6. Return ONLY the JSON object — no other text.`;
+
+        try {
+          const boardServerResp = await fetch(BACKEND_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              question: 'Teach this topic on the Smart Board now.',
+              systemPrompt: boardPrompt,
+              selectedLangName: langName
+            })
+          });
+          const boardServerData = await boardServerResp.json();
+          if (!boardServerResp.ok || boardServerData.error) throw new Error('Board API failed');
+
+          let raw = (boardServerData.rawText || '').trim();
+          let lesson = null;
+          try {
+            const m = raw.match(/\{[\s\S]*\}/);
+            lesson = JSON.parse(m ? m[0] : raw);
+          } catch (e) { lesson = null; }
+
+          if (lesson && lesson.steps && Array.isArray(lesson.steps)) {
+            renderClassroomBoard(lesson, area);
+          } else {
+            // Fallback to simple step display
+            const fallbackSteps = combinedText.split('\n')
+              .map(s => s.replace(/^[-*•●\d.]+\s*/, '').trim())
+              .filter(s => s.length > 4 && s.length < 300)
+              .slice(0, 10);
+            renderBoardSteps(fallbackSteps.length ? fallbackSteps : [combinedText.substring(0, 200)], area);
+          }
+        } catch (err) {
+          const fallbackSteps = combinedText.split('\n')
+            .map(s => s.replace(/^[-*•●\d.]+\s*/, '').trim())
+            .filter(s => s.length > 4 && s.length < 300)
+            .slice(0, 10);
+          renderBoardSteps(fallbackSteps.length ? fallbackSteps : [combinedText.substring(0, 200)], area);
+        }
+      } else {
+        area.innerHTML = '<div style="color:#64748B;font-size:1rem;font-weight:700;padding:20px;text-align:center">📋 ऊपर दीदी AI का जवाब आने दो, फिर Board अपने आप दिखेगा! ⌛</div>';
+      }
+    }
+
+    // ===== CLASSROOM BOARD RENDERER — Real teacher style =====
+    function renderClassroomBoard(lesson, area) {
+      area.innerHTML = '';
+      area.style.alignItems = 'flex-start';
+      area.style.background = '#0d1b2a';
+      area.style.border = '4px solid #38BDF8';
+      area.style.borderRadius = '16px';
+      area.style.padding = '28px 24px';
+      area.style.minHeight = '300px';
+      area.style.color = '#F1F5F9';
+
+      if (!document.getElementById('cb-style')) {
+        const st = document.createElement('style');
+        st.id = 'cb-style';
+        st.textContent = `
+        @keyframes cbSlide{from{opacity:0;transform:translateX(-24px)}to{opacity:1;transform:translateX(0)}}
+        @keyframes cbPop{0%{opacity:0;transform:scale(0.88)}70%{transform:scale(1.03)}100%{opacity:1;transform:scale(1)}}
+        @keyframes cbGlow{0%,100%{box-shadow:0 0 10px rgba(56,189,248,0.3)}50%{box-shadow:0 0 28px rgba(56,189,248,0.8)}}
+        .cb-section{opacity:0;animation:cbSlide 0.5s ease forwards;}
+        .cb-step{opacity:0;animation:cbSlide 0.45s ease forwards;border-left:4px solid;border-radius:0 10px 10px 0;padding:10px 16px;margin:6px 0;background:rgba(255,255,255,0.05);word-break:break-word;}
+        .cb-pill{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:28px;border-radius:50%;font-weight:900;font-size:0.8rem;color:#fff;flex-shrink:0;margin-right:10px;}
+      `;
+        document.head.appendChild(st);
+      }
+
+      const STEP_COLORS = ['#38BDF8', '#34D399', '#F472B6', '#FBBF24', '#A78BFA', '#FB923C', '#4ADE80', '#E879F9'];
+      let delay = 0;
+
+      function section(html, d) {
+        const div = document.createElement('div');
+        div.className = 'cb-section';
+        div.style.animationDelay = d + 's';
+        div.style.marginBottom = '18px';
+        div.innerHTML = html;
+        area.appendChild(div);
+      }
+
+      // ── HEADER ──
+      section(`
+      <div style="display:flex;align-items:center;gap:12px;padding-bottom:14px;border-bottom:2px dashed rgba(56,189,248,0.4);margin-bottom:4px">
+        <div style="font-size:2rem">🖊️</div>
+        <div>
+          <div style="font-size:1.3rem;font-weight:900;color:#38BDF8">Smart Answer Board — कक्षा में समझाते हैं!</div>
+          <div style="font-size:0.85rem;color:#94A3B8;margin-top:2px">दीदी AI अब real teacher की तरह Board पर समझाएगी 👩‍🏫</div>
+        </div>
+      </div>`, delay);
+      delay += 0.25;
+
+      // ── TOPIC ──
+      if (lesson.topic) {
+        section(`
+        <div style="background:linear-gradient(135deg,rgba(56,189,248,0.2),rgba(167,139,250,0.15));border:2px solid rgba(56,189,248,0.5);border-radius:12px;padding:12px 18px;animation:cbGlow 3s ease-in-out infinite">
+          <div style="font-size:0.75rem;font-weight:800;color:#94A3B8;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">📌 विषय / Topic</div>
+          <div style="font-size:1.25rem;font-weight:900;color:#fff">${lesson.topic}</div>
+        </div>`, delay);
+        delay += 0.3;
+      }
+
+      // ── CONCEPT ──
+      if (lesson.concept) {
+        section(`
+        <div style="background:rgba(52,211,153,0.1);border:1.5px solid rgba(52,211,153,0.4);border-radius:12px;padding:14px 18px">
+          <div style="font-size:0.75rem;font-weight:800;color:#34D399;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">💡 आसान भाषा में — Concept</div>
+          <div style="font-size:1.05rem;font-weight:700;color:#E2E8F0;line-height:1.7">${lesson.concept}</div>
+        </div>`, delay);
+        delay += 0.35;
+      }
+
+      // ── STEPS ──
+      if (lesson.steps && lesson.steps.length) {
+        const stepsWrap = document.createElement('div');
+        stepsWrap.className = 'cb-section';
+        stepsWrap.style.animationDelay = delay + 's';
+        stepsWrap.innerHTML = `<div style="font-size:0.78rem;font-weight:800;color:#FBBF24;letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">🪜 Step-by-Step हल — एक एक कदम</div>`;
+        area.appendChild(stepsWrap);
+        delay += 0.2;
+
+        lesson.steps.forEach((step, i) => {
+          const color = STEP_COLORS[i % STEP_COLORS.length];
+          const isLast = (i === lesson.steps.length - 1);
+          const div = document.createElement('div');
+          div.className = 'cb-step';
+          div.style.borderColor = color;
+          div.style.animationDelay = delay + 's';
+          if (isLast) {
+            div.style.background = 'rgba(52,211,153,0.12)';
+            div.style.borderColor = '#34D399';
+            div.style.border = '2px solid #34D399';
+            div.style.borderRadius = '10px';
+          }
+          div.innerHTML = `
+          <div style="display:flex;align-items:flex-start;gap:10px">
+            <div class="cb-pill" style="background:${isLast ? '#34D399' : color};margin-top:2px">${isLast ? '✓' : i + 1}</div>
+            <div style="flex:1;font-size:1rem;font-weight:700;color:${isLast ? '#34D399' : '#E2E8F0'};line-height:1.7">${step}</div>
+          </div>`;
+          area.appendChild(div);
+          delay += 0.4;
+        });
+      }
+
+      // ── EXAMPLE ──
+      if (lesson.example) {
+        section(`
+        <div style="background:rgba(251,146,60,0.1);border:1.5px solid rgba(251,146,60,0.45);border-radius:12px;padding:14px 18px">
+          <div style="font-size:0.75rem;font-weight:800;color:#FB923C;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">🌍 Real-Life मिसाल — Example</div>
+          <div style="font-size:1rem;font-weight:700;color:#FED7AA;line-height:1.7">${lesson.example}</div>
+        </div>`, delay);
+        delay += 0.4;
+      }
+
+      // ── TRICK ──
+      if (lesson.trick) {
+        section(`
+        <div style="background:rgba(167,139,250,0.12);border:1.5px solid rgba(167,139,250,0.45);border-radius:12px;padding:14px 18px">
+          <div style="font-size:0.75rem;font-weight:800;color:#A78BFA;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">🧠 याद रखने का तरीका — Memory Trick</div>
+          <div style="font-size:1rem;font-weight:700;color:#DDD6FE;line-height:1.7">${lesson.trick}</div>
+        </div>`, delay);
+        delay += 0.4;
+      }
+
+      // ── COMMON MISTAKE ──
+      if (lesson.mistake) {
+        section(`
+        <div style="background:rgba(239,68,68,0.08);border:1.5px solid rgba(239,68,68,0.4);border-radius:12px;padding:14px 18px">
+          <div style="font-size:0.75rem;font-weight:800;color:#F87171;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">⚠️ यह गलती मत करना!</div>
+          <div style="font-size:1rem;font-weight:700;color:#FECACA;line-height:1.7">${lesson.mistake}</div>
+        </div>`, delay);
+        delay += 0.4;
+      }
+
+      // ── PRACTICE ──
+      if (lesson.practice && lesson.practice.length) {
+        const practiceHtml = lesson.practice.map((q, i) =>
+          `<div style="display:flex;align-items:flex-start;gap:8px;margin:6px 0;font-size:0.95rem;font-weight:700;color:#E2E8F0">
+          <span style="background:#FBBF24;color:#000;border-radius:50%;min-width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:900;flex-shrink:0;margin-top:2px">${i + 1}</span>
+          <span>${q}</span>
+        </div>`
+        ).join('');
+        section(`
+        <div style="background:rgba(255,214,10,0.08);border:1.5px solid rgba(255,214,10,0.35);border-radius:12px;padding:14px 18px">
+          <div style="font-size:0.75rem;font-weight:800;color:#FFD60A;letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">✏️ अब तुम करो — Practice</div>
+          ${practiceHtml}
+        </div>`, delay);
+        delay += 0.4;
+      }
+
+      // ── FOOTER ──
+      section(`
+      <div style="text-align:center;padding-top:12px;border-top:2px dashed rgba(56,189,248,0.3);margin-top:4px">
+        <div style="font-size:1.1rem;font-weight:900;color:#34D399">🎉 शाबाश! Board पर देख कर समझ आया ना? 💪</div>
+        <div style="font-size:0.85rem;color:#94A3B8;margin-top:4px">दीदी AI हमेशा तुम्हारे साथ है! 💖</div>
+      </div>`, delay);
+    }
+
+    // ===== CHALK-WRITE BOARD ANIMATION =====
+    function renderBoardSteps(steps, area) {
+      area.innerHTML = '';
+      area.style.alignItems = 'flex-start';
+      area.style.background = '#ffffff';
+      area.style.border = '3px solid #4361EE';
+      area.style.padding = '24px 20px';
+      area.style.minHeight = '200px';
+
+      if (!document.getElementById('wb-style')) {
+        const st = document.createElement('style');
+        st.id = 'wb-style';
+        st.textContent = '@keyframes chalkSlide{from{opacity:0;transform:translateX(-30px)}to{opacity:1;transform:translateX(0)}}@keyframes answerPop{0%{opacity:0;transform:scale(0.85)}70%{transform:scale(1.04)}100%{opacity:1;transform:scale(1)}}@keyframes lineGrow{from{width:0}to{width:100%}}';
+        document.head.appendChild(st);
+      }
+
+      const COLS = ['#4361EE', '#7209B7', '#F77F00', '#118AB2', '#9B5DE5', '#EF476F'];
+      const hdr = document.createElement('div');
+      hdr.style.cssText = 'font-size:1rem;font-weight:900;color:#4361EE;margin-bottom:16px;padding-bottom:10px;border-bottom:2px dashed #e2e8f0;width:100%;';
+      hdr.textContent = '\uD83D\uDD8A\uFE0F Smart Answer Board \u2014 Step by Step';
+      area.appendChild(hdr);
+
+      steps.forEach(function (step, idx) {
+        var isLast = (idx === steps.length - 1);
+        var color = COLS[idx % COLS.length];
+        var delay = (idx * 0.65).toFixed(2);
+        var eqIdx = step.indexOf('=');
+        var hasEq = eqIdx > 0 && eqIdx < step.length - 1;
+
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;opacity:0;animation:chalkSlide 0.45s ease forwards;animation-delay:' + delay + 's;';
+
+        var pill = document.createElement('div');
+        pill.style.cssText = 'min-width:26px;height:26px;border-radius:50%;background:' + (isLast ? '#06D6A0' : color) + ';color:#fff;font-weight:900;font-size:0.78rem;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:3px;';
+        pill.textContent = String(idx + 1);
+        row.appendChild(pill);
+
+        var content = document.createElement('div');
+        content.style.cssText = 'flex:1;';
+
+        if (isLast) {
+          var ans = document.createElement('div');
+          ans.style.cssText = 'background:#f0fdf4;border:2px solid #06D6A0;border-radius:10px;padding:10px 16px;font-size:1.1rem;font-weight:900;color:#065f46;display:flex;align-items:center;gap:8px;opacity:0;animation:answerPop 0.5s ease forwards;animation-delay:' + delay + 's;';
+          var chk = document.createElement('span');
+          chk.textContent = '\u2705';
+          var ansT = document.createElement('span');
+          ansT.style.fontFamily = 'monospace';
+          ansT.textContent = step;
+          ans.appendChild(chk);
+          ans.appendChild(ansT);
+          content.appendChild(ans);
+        } else if (hasEq) {
+          var lhs = step.substring(0, eqIdx).trim();
+          var rhs = step.substring(eqIdx + 1).trim();
+          var eq = document.createElement('div');
+          eq.style.cssText = 'font-size:1.05rem;font-weight:800;display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:8px 12px;border-radius:8px;background:' + (idx % 2 === 0 ? '#f8faff' : '#fff9f0') + ';border-left:4px solid ' + color + ';';
+          var lhsEl = document.createElement('span');
+          lhsEl.style.cssText = 'color:' + color + ';font-family:monospace;font-weight:900;';
+          lhsEl.textContent = lhs;
+          var eqEl = document.createElement('span');
+          eqEl.style.cssText = 'color:#F77F00;font-weight:900;font-size:1.1rem;padding:0 4px;';
+          eqEl.textContent = '=';
+          var rhsEl = document.createElement('span');
+          rhsEl.style.cssText = 'color:#1e293b;font-family:monospace;font-weight:800;';
+          rhsEl.textContent = rhs;
+          eq.appendChild(lhsEl); eq.appendChild(eqEl); eq.appendChild(rhsEl);
+          content.appendChild(eq);
+        } else {
+          var txt = document.createElement('div');
+          txt.style.cssText = 'font-size:1rem;font-weight:700;color:#334155;padding:8px 12px;border-radius:8px;background:#f8faff;border-left:4px solid ' + color + ';word-break:break-word;';
+          txt.textContent = step;
+          content.appendChild(txt);
+        }
+
+        row.appendChild(content);
+        area.appendChild(row);
+
+        if (!isLast) {
+          var divEl = document.createElement('div');
+          divEl.style.cssText = 'height:1px;background:linear-gradient(to right,' + color + '44,transparent);margin-bottom:4px;width:0;animation:lineGrow 0.3s ease forwards;animation-delay:' + (parseFloat(delay) + 0.4).toFixed(2) + 's;';
+          area.appendChild(divEl);
+        }
+      });
+
+      var footer = document.createElement('div');
+      footer.style.cssText = 'width:100%;text-align:center;margin-top:16px;padding-top:12px;border-top:2px dashed #e2e8f0;font-size:0.95rem;font-weight:800;color:#06D6A0;opacity:0;animation:fadeUp .4s ease forwards;animation-delay:' + (steps.length * 0.65 + 0.3).toFixed(2) + 's;';
+      footer.textContent = '\uD83C\uDF89 \u0936\u093E\u092C\u093E\u0936! Board \u092A\u0930 \u0926\u0947\u0916 \u0915\u0930 \u0938\u092E\u091D \u0906 \u0917\u092F\u093E \u0928\u093E? \uD83D\uDCAA';
+      area.appendChild(footer);
+    }
+    function speakText(id) {
+      const el = document.getElementById(id);
+      if (!el || !el.innerText.trim()) return;
+      const cfg = LANG_CONFIG[currentLang] || LANG_CONFIG.hindi;
+      window.speechSynthesis.cancel();
+
+      function getSmartVoice(voices, langCode) {
+        if (!voices || voices.length === 0) return { voice: null, lang: langCode };
+        const lang = langCode.toLowerCase();
+        const primary = lang.split('-')[0];
+        let v = voices.find(v => v.lang.toLowerCase() === lang);
+        if (v) return { voice: v, lang: langCode };
+        v = voices.find(v => v.lang.toLowerCase().startsWith(primary + '-'));
+        if (v) return { voice: v, lang: v.lang };
+        v = voices.find(v => v.lang.toLowerCase() === primary);
+        if (v) return { voice: v, lang: v.lang };
+        if (primary !== 'en') {
+          const hi = voices.find(v => v.lang.toLowerCase() === 'hi-in') ||
+            voices.find(v => v.lang.toLowerCase().startsWith('hi'));
+          if (hi) return { voice: hi, lang: 'hi-IN' };
+          const en = voices.find(v => v.lang.toLowerCase().startsWith('en-in')) ||
+            voices.find(v => v.lang.toLowerCase().startsWith('en'));
+          if (en) return { voice: en, lang: en.lang };
+        }
+        return { voice: null, lang: langCode };
+      }
+
+      function doIt(result) {
+        const utt = new SpeechSynthesisUtterance(el.innerText);
+        utt.lang = result.lang;
+        utt.rate = speakRate;
+        if (result.voice) utt.voice = result.voice;
+        window.speechSynthesis.speak(utt);
+      }
+
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        doIt(getSmartVoice(voices, cfg.speech));
+      } else {
+        window.speechSynthesis.onvoiceschanged = () => {
+          window.speechSynthesis.onvoiceschanged = null;
+          doIt(getSmartVoice(window.speechSynthesis.getVoices(), cfg.speech));
+        };
+        setTimeout(() => {
+          const v2 = window.speechSynthesis.getVoices();
+          doIt(v2.length > 0 ? getSmartVoice(v2, cfg.speech) : { voice: null, lang: cfg.speech });
+        }, 1500);
+      }
+    }
+
+    function speakTeacherText() { speakTeacherWithGlow(); }
+
+    function toggleSimpleAns() {
+      document.getElementById('simple-ans-container').classList.toggle('show');
+    }
+
+    function copyCard(id, btn) {
+      navigator.clipboard.writeText(document.getElementById(id).innerText || '').then(() => {
+        btn.textContent = '✅ Copied!'; btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = '📋 Copy'; btn.classList.remove('copied') }, 2000);
+      });
+    }
+
+    function copyAll() {
+      const all = ['text-simple', 'text-steps', 'text-example', 'text-practice', 'text-summary']
+        .map((id, i) => `[${i + 1}] ${document.getElementById(id).innerText}`).join('\n\n---\n\n');
+      navigator.clipboard.writeText(all).then(() => {
+        const btn = document.querySelector('.copy-all-btn');
+        btn.textContent = '✅ Copied All!';
+        setTimeout(() => btn.textContent = '📋 सब Copy करें', 2000);
+      });
+    }
+
+    window.addEventListener('scroll', () => { document.getElementById('scroll-top').classList.toggle('visible', window.scrollY > 300) });
+    document.getElementById('question-input').addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') askQuestion() });
+
+    // Cancel speech synthesis on page reload or close to prevent ghost audio
+    window.addEventListener('beforeunload', () => {
+      if (window.speechKeepAlive) clearInterval(window.speechKeepAlive);
+      window.speechSynthesis.cancel();
+    });
+
+    // MATH MAGIC LOGIC
+    let mathUploadedImage = null;
+    function handleMathImage(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const r = new FileReader();
+      r.onload = (ev) => {
+        mathUploadedImage = ev.target.result.split(',')[1];
+        const imgBtn = document.getElementById('math-img-btn');
+        if (imgBtn) imgBtn.style.background = '#06D6A0';
+        document.getElementById('math-input').placeholder = "📸 Photo Uploaded! Add question or click Solve.";
+      };
+      r.readAsDataURL(file);
+    }
+
+    const mathSpeech = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    function startMathMic() {
+      if (!mathSpeech) return alert('Mic not supported in this browser.');
+      const rec = new mathSpeech();
+      rec.lang = (LANG_CONFIG[currentLang] || LANG_CONFIG.hindi).speech;
+      const input = document.getElementById('math-input');
+      input.placeholder = "Listening...";
+      rec.onresult = (e) => {
+        input.value = e.results[0][0].transcript;
+        input.placeholder = "यहाँ अपना Math का सवाल लिखें...";
+        askMathQuestion();
+      };
+      rec.onerror = () => input.placeholder = "यहाँ अपना Math का सवाल लिखें...";
+      rec.start();
+    }
+
+    function startMathFollowupMic() {
+      if (!mathSpeech) return alert('Mic not supported in this browser.');
+      const rec = new mathSpeech();
+      rec.lang = (LANG_CONFIG[currentLang] || LANG_CONFIG.hindi).speech;
+      const input = document.getElementById('math-followup-input');
+      input.placeholder = "Listening...";
+      rec.onresult = (e) => {
+        input.value = e.results[0][0].transcript;
+        input.placeholder = "यहाँ लिखो...";
+      };
+      rec.onerror = () => input.placeholder = "यहाँ लिखो...";
+      rec.start();
+    }
+
+    // ====================================================
+    // CLIENT-SIDE MATH SOLVER — No AI needed for simple sums
+    // ====================================================
+    function clientMathSolve(q) {
+      if (!q) return null;
+      const raw = q.trim();
+
+      // --- TABLE DETECTION ---
+      const tblM = raw.match(/^(\d+)\s*(?:ka\s*)?(?:table|pahada|peh[aā]ra|पहाड़ा|×\s*1)$/i);
+      if (tblM) {
+        const n = parseInt(tblM[1]);
+        const rows = [];
+        for (let i = 1; i <= 10; i++) rows.push(`${n} × ${i} = ${n * i}`);
+        return { type: 'table', num: n, rows };
+      }
+
+      // --- SIMPLE ARITHMETIC DETECTION ---
+      // Normalize: ×→* ÷→/ x→* −→-
+      const norm = raw
+        .replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-')
+        .replace(/\bx\b/gi, '*').replace(/\bX\b/g, '*');
+      const m = norm.match(/^(\d+(?:\.\d+)?)\s*([+\-*\/])\s*(\d+(?:\.\d+)?)$/);
+      if (!m) return null;
+
+      const N1 = parseFloat(m[1]), rawOp = m[2], N2 = parseFloat(m[3]);
+      const I1 = Math.round(N1), I2 = Math.round(N2);
+      let answer, op, carries = [], subSteps = [];
+
+      if (rawOp === '+') {
+        answer = I1 + I2; op = '+';
+        const s1 = String(I1), s2 = String(I2);
+        const L = Math.max(s1.length, s2.length);
+        let carry = 0;
+        for (let i = 0; i < L; i++) {
+          const d1 = parseInt(s1[s1.length - 1 - i] || '0');
+          const d2 = parseInt(s2[s2.length - 1 - i] || '0');
+          const sum = d1 + d2 + carry;
+          carry = Math.floor(sum / 10);
+          carries.push(carry);
+          subSteps.push(`${d1} + ${d2}${i > 0 && carries[i - 1] ? ' + ' + carries[i - 1] + '(carry)' : ''} = ${sum}${sum >= 10 ? ' → carry ' + carry : ''}`);
+        }
+      } else if (rawOp === '-') {
+        answer = I1 - I2; op = '−';
+        const s1 = String(I1), s2 = String(I2);
+        let borrow = 0;
+        for (let i = 0; i < s1.length; i++) {
+          const d1 = parseInt(s1[s1.length - 1 - i] || '0');
+          const d2 = parseInt(s2[s2.length - 1 - i] || '0');
+          let diff = d1 - borrow - d2;
+          borrow = diff < 0 ? 1 : 0;
+          if (diff < 0) diff += 10;
+          carries.push(borrow);
+          subSteps.push(`${d1}${borrow ? '(उधार लिया)' : ''} − ${d2} = ${diff}`);
+        }
+      } else if (rawOp === '*') {
+        answer = I1 * I2; op = '×';
+        const s1 = String(I1);
+        let carry = 0;
+        for (let i = s1.length - 1; i >= 0; i--) {
+          const d = parseInt(s1[i]);
+          const prod = d * I2 + carry;
+          carry = Math.floor(prod / 10);
+          carries.push(carry);
+          subSteps.push(`${I2} × ${d} = ${d * I2}${carries[s1.length - 1 - i] ? ' + ' + (prod - d * I2) + '(carry) = ' + prod + ' → लिखो ' + (prod % 10) + ', carry ' + carry : ''}`);
+        }
+      } else if (rawOp === '/') {
+        if (I2 === 0) return null;
+        const quot = Math.floor(I1 / I2), rem = I1 % I2;
+        const dSteps = [];
+        let cur = 0;
+        String(I1).split('').forEach((digit, idx) => {
+          cur = cur * 10 + parseInt(digit);
+          const qd = Math.floor(cur / I2);
+          const prod = qd * I2;
+          const r = cur - prod;
+          dSteps.push(`${cur} ÷ ${I2} = ${qd}  [${I2}×${qd}=${prod}, शेष ${r}]`);
+          cur = r;
+        });
+        dSteps.push(`✅ भागफल = ${quot}${rem ? '  शेषफल = ' + rem : '  (पूरा बँटा)'}`);
+        return { type: 'division', dividend: I1, divisor: I2, quotient: quot, remainder: rem, steps: dSteps };
+      } else {
+        return null;
+      }
+
+      return { type: 'arithmetic', op, num1: I1, num2: I2, answer, carries, subSteps };
+    }
+
+    async function askMathQuestion(customQ = null) {
+      const q = customQ || document.getElementById('math-input').value.trim();
+      if (!q && !mathUploadedImage) return;
+
+      // Get selected language — enforce strictly
+      const mathCfg = LANG_CONFIG[currentLang] || LANG_CONFIG.hindi;
+      const mathLang = mathCfg.name;
+
+      const area = document.getElementById('math-notebook-area');
+      area.innerHTML = '<div style="color:#EF476F; font-weight:800; font-size:1.4rem; animation:pulse 1s infinite alternate;">🤔 Didi is solving...</div>';
+
+      // ====================================================
+      // TRY CLIENT-SIDE FIRST (instant, no AI, 100% reliable)
+      // ====================================================
+      if (!mathUploadedImage && q) {
+        const clientResult = clientMathSolve(q);
+        if (clientResult) {
+          renderMathAnimation(clientResult);
+          // Show follow-up UI
+          const followupDiv = document.createElement('div');
+          followupDiv.style.cssText = 'margin-top:30px;width:100%;max-width:600px;display:flex;flex-direction:column;gap:10px;padding:15px;background:rgba(255,255,255,0.9);border-radius:12px;border:2px dashed #06D6A0;';
+          const safeQ = q.replace(/'/g, "\\'");
+          followupDiv.innerHTML = `
+          <div style="color:#06D6A0;font-weight:800;font-size:1.1rem;text-align:center;">🤔 और कोई सवाल? पूछो!</div>
+          <div style="display:flex;gap:10px;">
+            <input type="text" id="math-followup-input" placeholder="यहाँ लिखो..." style="flex:1;padding:10px;border:2px solid #06D6A0;border-radius:8px;font-size:1rem;outline:none;font-family:var(--font);font-weight:700;">
+            <button onclick="startMathFollowupMic()" style="background:#EF476F;border:none;border-radius:8px;padding:0 12px;font-size:1.2rem;cursor:pointer;color:#fff;">🎤</button>
+            <button onclick="submitMathFollowup('${safeQ}')" style="background:#06D6A0;border:none;border-radius:8px;padding:0 16px;font-size:1rem;font-weight:800;cursor:pointer;color:#fff;">पूछें</button>
+          </div>
+          <button onclick="submitMathFollowup('${safeQ}','इसे दूसरे तरीके से समझाएं!')" style="background:#FFD166;color:#118AB2;border:none;border-radius:8px;padding:10px;font-size:1rem;font-weight:800;cursor:pointer;width:100%;">🔁 दूसरे तरीके से समझाएं</button>
+        `;
+          area.appendChild(followupDiv);
+          return;
+        }
+      }
+
+
+      const systemPrompt = `You are a visual math board AI for Indian school students (LKG to 12th).
+
+DETECT the type of math problem and return structured JSON for visual rendering.
+
+For SIMPLE ARITHMETIC (add, subtract, multiply, divide with 1-4 digit numbers):
+Return ONLY this JSON object:
+{
+  "type": "arithmetic",
+  "op": "+" or "-" or "×" or "÷",
+  "num1": first_number_as_integer,
+  "num2": second_number_as_integer,
+  "answer": result_as_integer,
+  "carries": [array of carry/borrow digits per column, right to left, 0 if none],
+  "subSteps": ["short visual note per digit column, right to left"],
+  "steps": ["plain text step 1", "step 2"]
+}
+
+For MULTIPLICATION TABLE (e.g. "5 ka table"):
+Return: {"type":"table","num":5,"rows":["5 × 1 = 5","5 × 2 = 10",..."5 × 10 = 50"]}
+
+For LONG DIVISION (e.g. 144 ÷ 12):
+Return: {"type":"division","dividend":144,"divisor":12,"quotient":12,"remainder":0,"steps":["12 × 1 = 12","144 - 132 = 12","Quotient = 12"]}
+
+For ADVANCED/WORD PROBLEMS (algebra, geometry, fractions, word problems, multi-step):
+Return: {"type":"advanced","steps":["step1 in ${mathLang}","step2",...],"answer":"final answer"}
+
+For IMAGE with multiple problems: solve ALL, return {"type":"multi","problems":[{each problem as above}]}
+
+RULES:
+- All text labels in ${mathLang}. Numbers and math symbols stay as-is.
+- carries array: one digit per column from RIGHT to LEFT (0 = no carry).
+- Return ONLY valid JSON. No markdown, no explanation outside JSON.`;
+
+      try {
+        // 🔐 Secure backend call for Math workspace
+        const mathLangInstruction = `\n\nIMPORTANT: Answer in ${mathLang} only. All text in ${mathLang}. Math symbols/numbers stay as-is.`;
+        const mathQuestion = mathUploadedImage
+          ? (q || 'Solve ALL math problems in this image step by step.') + mathLangInstruction + ' REMEMBER: If multiple questions exist, solve ALL of them.'
+          : q + mathLangInstruction + ' REMEMBER: If it\'s a table, output EXACTLY 10 lines from 1 to 10.';
+
+        const mathServerResp = await fetch(BACKEND_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question: mathQuestion,
+            imageBase64: mathUploadedImage || null,
+            systemPrompt,
+            selectedLangName: mathLang
+          })
+        });
+        const mathServerData = await mathServerResp.json();
+        if (!mathServerResp.ok || mathServerData.error) throw new Error(mathServerData.message || 'Math API Error');
+
+        let rawText = (mathServerData.rawText || '').trim();
+        let mathData = null;
+        try {
+          const mObj = rawText.match(/\{[\s\S]*\}/);
+          mathData = JSON.parse(mObj ? mObj[0] : rawText);
+          if (!mathData || !mathData.type) throw new Error('no type');
+        } catch (e) {
+          // Fallback: try array
+          try {
+            const mArr = rawText.match(/\[[\s\S]*\]/);
+            const arr = JSON.parse(mArr ? mArr[0] : rawText);
+            if (Array.isArray(arr)) mathData = { type: 'advanced', steps: arr };
+          } catch (e2) {
+            const lines = rawText.replace(/[\[\]"\{\}]/g, '').split('\n').map(s => s.trim()).filter(s => s.length > 0);
+            mathData = { type: 'advanced', steps: lines.length ? lines : ['कृपया दोबारा पूछें!'] };
+          }
+        }
+
+        renderMathAnimation(mathData);
+
+        // Follow-up UI
+        const followupDiv = document.createElement('div');
+        followupDiv.style.cssText = 'margin-top: 30px; width: 100%; max-width: 600px; display: flex; flex-direction: column; gap: 10px; padding: 15px; background: rgba(255,255,255,0.9); border-radius: 12px; border: 2px dashed #06D6A0;';
+        followupDiv.innerHTML = `
+        <div style="color:#06D6A0; font-weight:800; font-size:1.1rem; text-align:center;">🤔 समझ नहीं आया? और आसान तरीका चाहिए? पूछो!</div>
+        <div style="display:flex; gap:10px;">
+          <input type="text" id="math-followup-input" placeholder="यहाँ लिखो (e.g. dusre tarike se batao)" style="flex:1; padding:10px; border:2px solid #06D6A0; border-radius:8px; font-size:1rem; outline:none; font-family:var(--font); font-weight:700;">
+          <button onclick="startMathFollowupMic()" style="background:#EF476F; border:none; border-radius:8px; padding:0 12px; font-size:1.2rem; cursor:pointer; color:#fff;">🎤</button>
+          <button onclick="submitMathFollowup('${q.replace(/'/g, "\\'")}')" style="background:#06D6A0; border:none; border-radius:8px; padding:0 16px; font-size:1rem; font-weight:800; cursor:pointer; color:#fff;">पूछें</button>
+        </div>
+        <button onclick="submitMathFollowup('${q.replace(/'/g, "\\'")}', 'इसे एक दूसरे और आसान तरीके से समझाएं!')" style="background:#FFD166; color:#118AB2; border:none; border-radius:8px; padding:10px; font-size:1rem; font-weight:800; cursor:pointer; width:100%;">🔁 दूसरे आसान तरीके से समझाएं</button>
+      `;
+        area.appendChild(followupDiv);
+
+      } catch (e) {
+        area.innerHTML = '<div style="color:red; font-weight:bold;">Error solving math. Please try again!</div>';
+      }
+    }
+
+    function submitMathFollowup(originalQ, explicitFollowup = null) {
+      const followupQ = explicitFollowup || document.getElementById('math-followup-input').value.trim();
+      if (!followupQ) return;
+      const combinedQ = "Original Question: " + originalQ + " \\nFollow-up: " + followupQ;
+      askMathQuestion(combinedQ);
+    }
+
+    // ===== INJECT MATH BOARD STYLES ONCE =====
+    (function injectMathStyles() {
+      if (document.getElementById('mb-anim-style')) return;
+      const s = document.createElement('style');
+      s.id = 'mb-anim-style';
+      s.textContent = `
+      @keyframes mbDrop{from{opacity:0;transform:translateY(-28px) scale(1.3)}to{opacity:1;transform:translateY(0) scale(1)}}
+      @keyframes mbSlideUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+      @keyframes mbPop{0%{opacity:0;transform:scale(0.5)}60%{transform:scale(1.12)}100%{opacity:1;transform:scale(1)}}
+      @keyframes mbLine{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+      @keyframes mbGlow{0%,100%{box-shadow:0 0 0 0 rgba(6,214,160,0)}50%{box-shadow:0 0 14px 4px rgba(6,214,160,0.6)}}
+      @keyframes mbCarry{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+      .mb-digit{display:inline-flex;align-items:center;justify-content:center;min-width:52px;height:60px;font-size:2rem;font-weight:900;font-family:monospace;border-radius:10px;opacity:0;}
+      .mb-op{display:inline-flex;align-items:center;justify-content:center;min-width:42px;height:60px;font-size:2rem;font-weight:900;color:#F77F00;font-family:monospace;opacity:0;}
+      .mb-carry{font-size:0.95rem;font-weight:900;color:#F72585;position:absolute;top:-18px;opacity:0;}
+      .mb-line{height:4px;border-radius:2px;transform-origin:left;transform:scaleX(0);margin:6px 0;}
+      .mb-ans{display:inline-flex;align-items:center;justify-content:center;min-width:52px;height:64px;font-size:2.2rem;font-weight:900;font-family:monospace;border-radius:12px;opacity:0;color:#fff;}
+    `;
+      document.head.appendChild(s);
+    })();
+
+    function renderMathAnimation(data) {
+      const workspace = document.getElementById('math-workspace');
+      const area = document.getElementById('math-notebook-area');
+      area.innerHTML = '';
+      if (!data) return;
+
+      const type = data.type || 'advanced';
+
+      // ── MULTI: multiple problems from image ──
+      if (type === 'multi' && Array.isArray(data.problems)) {
+        area.style.cssText = 'background:#0F172A;border:3px solid #38BDF8;border-radius:14px;padding:24px;min-height:200px;align-items:flex-start;';
+        data.problems.forEach((prob, pi) => {
+          const wrap = document.createElement('div');
+          wrap.style.cssText = `margin-bottom:32px;opacity:0;animation:mbSlideUp 0.5s ease forwards;animation-delay:${pi * 0.3}s`;
+          const lbl = document.createElement('div');
+          lbl.style.cssText = 'font-size:0.8rem;font-weight:900;color:#F472B6;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;';
+          lbl.textContent = `सवाल ${pi + 1}`;
+          wrap.appendChild(lbl);
+          const inner = document.createElement('div');
+          wrap.appendChild(inner);
+          area.appendChild(wrap);
+          renderMathAnimation(Object.assign({}, prob, { _targetEl: inner }));
+        });
+        return;
+      }
+
+      const targetArea = data._targetEl || area;
+
+      // ── TABLE ──
+      if (type === 'table' && data.rows) {
+        targetArea.style.cssText = 'background:#0F172A;border:3px solid #38BDF8;border-radius:14px;padding:24px 20px;min-height:200px;align-items:flex-start;display:flex;flex-direction:column;gap:4px;';
+        const hdr = document.createElement('div');
+        hdr.style.cssText = 'font-size:1.1rem;font-weight:900;color:#38BDF8;margin-bottom:14px;';
+        hdr.textContent = `📊 ${data.num} का पहाड़ा`;
+        targetArea.appendChild(hdr);
+        data.rows.forEach((row, i) => {
+          const d = document.createElement('div');
+          d.style.cssText = `font-family:monospace;font-size:1.3rem;font-weight:800;color:${i % 2 === 0 ? '#34D399' : '#60A5FA'};opacity:0;animation:mbSlideUp 0.35s ease forwards;animation-delay:${i * 0.12}s;padding:3px 0;`;
+          d.textContent = row;
+          targetArea.appendChild(d);
+        });
+        return;
+      }
+
+      // ── ARITHMETIC (add / subtract / multiply / divide visual) ──
+      if (type === 'arithmetic') {
+        const { op, num1, num2, answer, carries = [], subSteps = [] } = data;
+        targetArea.style.cssText = 'background:#fff;border:3px solid #4361EE;border-radius:14px;padding:28px 24px;min-height:180px;display:flex;flex-direction:column;align-items:center;';
+
+        const s1 = String(num1), s2 = String(num2), sa = String(answer);
+        const maxLen = Math.max(s1.length, s2.length, sa.length) + 1;
+
+        function padRow(str) { return str.padStart(maxLen, ' '); }
+
+        // LABEL
+        const lbl = document.createElement('div');
+        lbl.style.cssText = 'font-size:0.78rem;font-weight:800;color:#4361EE;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;';
+        const opNames = { '+': 'जोड़ (Addition)', '−': 'घटाव (Subtraction)', '-': 'घटाव (Subtraction)', '×': 'गुणा (Multiplication)', '*': 'गुणा (Multiplication)', '÷': 'भाग (Division)' };
+        lbl.textContent = opNames[op] || op;
+        targetArea.appendChild(lbl);
+
+        // CARRIES ROW
+        const carryRow = document.createElement('div');
+        carryRow.style.cssText = `font-family:monospace;font-size:1rem;font-weight:900;color:#F72585;letter-spacing:0.18em;min-height:22px;opacity:0;animation:mbCarry 0.4s ease forwards;animation-delay:0.2s;align-self:flex-end;margin-right:8px;`;
+        if (carries && carries.length) {
+          const carryStr = carries.slice().reverse().map(c => c ? c : ' ').join('');
+          carryRow.textContent = carryStr.padStart(maxLen, ' ');
+          carryRow.title = 'Carry / Borrow';
+        }
+        targetArea.appendChild(carryRow);
+
+        // TOP NUMBER
+        const r1 = document.createElement('div');
+        r1.style.cssText = `font-family:monospace;font-size:2.2rem;font-weight:900;color:#118AB2;letter-spacing:0.18em;opacity:0;animation:mbDrop 0.45s ease forwards;animation-delay:0.3s;`;
+        r1.textContent = padRow(s1);
+        targetArea.appendChild(r1);
+
+        // OPERATOR + SECOND NUMBER
+        const r2 = document.createElement('div');
+        r2.style.cssText = `font-family:monospace;font-size:2.2rem;font-weight:900;letter-spacing:0.18em;opacity:0;animation:mbDrop 0.45s ease forwards;animation-delay:0.65s;`;
+        const opDisp = (op === '*' ? '×' : op === '-' ? '−' : op === '/' ? '÷' : op);
+        r2.innerHTML = `<span style="color:#F77F00">${opDisp}</span><span style="color:#EF476F">${padRow(s2).slice(1)}</span>`;
+        targetArea.appendChild(r2);
+
+        // LINE
+        const line = document.createElement('div');
+        line.style.cssText = `width:${maxLen * 2.4}rem;max-width:320px;height:4px;background:linear-gradient(90deg,#4361EE,#F72585);border-radius:2px;transform-origin:left;transform:scaleX(0);animation:mbLine 0.4s ease forwards;animation-delay:1s;margin:8px 0;`;
+        targetArea.appendChild(line);
+
+        // ANSWER digits — pop one by one
+        const ansRow = document.createElement('div');
+        ansRow.style.cssText = 'display:flex;gap:4px;margin-top:4px;';
+        sa.split('').forEach((d, i) => {
+          const cell = document.createElement('div');
+          cell.className = 'mb-ans';
+          cell.style.cssText += `background:linear-gradient(135deg,#06D6A0,#059669);animation:mbPop 0.4s ease forwards;animation-delay:${1.3 + i * 0.18}s;min-width:52px;`;
+          cell.textContent = d;
+          ansRow.appendChild(cell);
+        });
+        targetArea.appendChild(ansRow);
+
+        // SUB-STEPS
+        if (subSteps && subSteps.length) {
+          const ssWrap = document.createElement('div');
+          ssWrap.style.cssText = 'margin-top:18px;display:flex;flex-direction:column;gap:5px;align-self:stretch;';
+          subSteps.forEach((ss, i) => {
+            const sd = document.createElement('div');
+            sd.style.cssText = `font-size:0.92rem;font-weight:700;color:#64748B;opacity:0;animation:mbSlideUp 0.35s ease forwards;animation-delay:${2 + i * 0.2}s;padding:4px 10px;background:#f8faff;border-radius:0 8px 8px 0;`;
+            sd.textContent = ss;
+            ssWrap.appendChild(sd);
+          });
+          targetArea.appendChild(ssWrap);
+        }
+        return;
+      }
+
+      // ── LONG DIVISION ──
+      if (type === 'division') {
+        const { dividend, divisor, quotient, remainder = 0, steps: dSteps = [] } = data;
+        targetArea.style.cssText = 'background:#0F172A;border:3px solid #38BDF8;border-radius:14px;padding:28px 24px;min-height:200px;display:flex;flex-direction:column;align-items:center;';
+        const hdr = document.createElement('div');
+        hdr.style.cssText = 'font-size:0.8rem;font-weight:900;color:#38BDF8;letter-spacing:1px;text-transform:uppercase;margin-bottom:18px;';
+        hdr.textContent = 'भाग (Long Division)';
+        targetArea.appendChild(hdr);
+        // Visual division box
+        const divBox = document.createElement('div');
+        divBox.style.cssText = 'display:flex;align-items:flex-start;gap:0;margin-bottom:20px;';
+        const dsor = document.createElement('div');
+        dsor.style.cssText = 'font-family:monospace;font-size:2rem;font-weight:900;color:#F472B6;padding-right:10px;border-right:4px solid #38BDF8;opacity:0;animation:mbDrop 0.4s ease forwards;animation-delay:0.2s;';
+        dsor.textContent = divisor;
+        divBox.appendChild(dsor);
+        const dend = document.createElement('div');
+        dend.style.cssText = 'display:flex;flex-direction:column;padding-left:10px;';
+        const dendTop = document.createElement('div');
+        dendTop.style.cssText = 'font-family:monospace;font-size:2rem;font-weight:900;color:#60A5FA;border-bottom:4px solid #38BDF8;padding-bottom:4px;opacity:0;animation:mbDrop 0.4s ease forwards;animation-delay:0.5s;';
+        dendTop.textContent = dividend;
+        const quotRow = document.createElement('div');
+        quotRow.style.cssText = 'font-family:monospace;font-size:2rem;font-weight:900;color:#34D399;padding-top:6px;opacity:0;animation:mbPop 0.5s ease forwards;animation-delay:0.9s;';
+        quotRow.textContent = quotient + (remainder ? ' R' + remainder : '');
+        dend.appendChild(dendTop);
+        dend.appendChild(quotRow);
+        divBox.appendChild(dend);
+        targetArea.appendChild(divBox);
+        // Steps
+        dSteps.forEach((st, i) => {
+          const sd = document.createElement('div');
+          sd.style.cssText = `font-family:monospace;font-size:1rem;font-weight:800;color:#E2E8F0;opacity:0;animation:mbSlideUp 0.35s ease forwards;animation-delay:${1.3 + i * 0.3}s;padding:5px 14px;background:rgba(255,255,255,0.06);border-radius:0 8px 8px 0;margin:3px 0;`;
+          sd.textContent = st;
+          targetArea.appendChild(sd);
+        });
+        return;
+      }
+
+      // ── ADVANCED (algebra, geometry, word problems) ──
+      const stepsArr = data.steps || [];
+      targetArea.style.cssText = 'background:#0F172A;border:4px solid #38BDF8;border-radius:14px;padding:28px 24px;min-height:240px;display:flex;flex-direction:column;gap:10px;align-items:flex-start;';
+      stepsArr.forEach((step, idx) => {
+        const isFirst = idx === 0, isLast = idx === stepsArr.length - 1;
+        const col = isFirst ? '#34D399' : isLast ? '#FFD60A' : '#E2E8F0';
+        const icon = isFirst ? '📝' : isLast ? '✅' : '👉';
+        const line = document.createElement('div');
+        line.style.cssText = `font-size:1.1rem;font-weight:700;color:${col};font-family:'Nunito',sans-serif;line-height:1.7;opacity:0;animation:mbSlideUp 0.5s ease forwards;animation-delay:${idx * 0.4}s;padding:6px 14px;border-left:4px solid ${col};background:rgba(255,255,255,0.04);border-radius:0 10px 10px 0;width:100%;word-break:break-word;`;
+        line.innerHTML = `<span style="color:#F472B6;margin-right:8px;">${icon}</span>${step}`;
+        targetArea.appendChild(line);
+      });
+      if (data.answer) {
+        const ans = document.createElement('div');
+        ans.style.cssText = `font-size:1.3rem;font-weight:900;color:#fff;background:linear-gradient(135deg,#06D6A0,#059669);border-radius:12px;padding:10px 22px;opacity:0;animation:mbPop 0.5s ease forwards;animation-delay:${stepsArr.length * 0.4 + 0.2}s;margin-top:8px;`;
+        ans.textContent = '✅ ' + data.answer;
+        targetArea.appendChild(ans);
+      }
+    }
+
+    // ===== ANSWER BOARD FULLSCREEN =====
+    let abFullscreen = false;
+    function toggleAnswerBoardFullscreen() {
+      const ws = document.getElementById('math-workspace');
+      const btn = document.getElementById('ab-fs-btn');
+      if (!ws) return;
+      abFullscreen = !abFullscreen;
+      if (abFullscreen) {
+        ws.style.cssText = 'position:fixed;inset:0;z-index:8888;border-radius:0;overflow-y:auto;margin:0;max-width:100%;';
+        btn.textContent = '✕ Exit Fullscreen';
+        document.body.style.overflow = 'hidden';
+      } else {
+        ws.style.cssText = '';
+        btn.textContent = '⛶ Fullscreen';
+        document.body.style.overflow = '';
+      }
+    }
+    // Page auto-expands — math-workspace has no fixed height, grows with content
+
+    // INIT
+    checkRegistration();
+    setSpeed(2);
+    renderSessionPanel();
+    updateLimitDisplay();

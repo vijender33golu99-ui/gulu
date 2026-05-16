@@ -13,12 +13,29 @@ const Tesseract = require('tesseract.js');
 const nvidiaService = require('./services/nvidiaService');
 require('dotenv').config();
 
+// ── Admin Panel Dependencies ──────────────────────────────────
+const bcrypt = require('bcryptjs');
+const session = require('express-session');
+const rateLimit = require('express-rate-limit');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ── Middleware ───────────────────────────────────────────────
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+// ── Session Middleware (Admin Panel ke liye) ─────────────────
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'vbs-admin-secret-change-in-production',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: false,   // Render HTTPS pe true kar sakte ho
+    httpOnly: true,  // XSS se bachata hai
+    maxAge: 3600000  // 1 ghanta
+  }
+}));
 
 // ── Static Files ─────────────────────────────────────────────
 // Aapke files root mein hain, isliye '.' use kar rahe hain
@@ -580,6 +597,138 @@ console.log('✅ Tawk AI route registered');
 app.post('/api/math', async (req, res) => {
   return app._router.handle({ ...req, url: '/api/ask', method: 'POST' }, res, () => res.status(500).json({ error: 'Internal routing error' }));
 });
+
+
+// ══════════════════════════════════════════════════════════════
+//  ADMIN PANEL ROUTES — Secure, session-protected
+// ══════════════════════════════════════════════════════════════
+
+// ── Admin: In-memory log store ────────────────────────────────
+const adminLogs = [];
+function saveAdminLog(type, data) {
+  adminLogs.unshift({ type, ...data, time: new Date().toISOString() });
+  if (adminLogs.length > 200) adminLogs.pop();
+}
+
+// ── Admin: Rate limiter (max 10 tries per 15 min per IP) ──────
+const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { success: false, error: 'Bahut zyada attempts. 15 minute baad try karo.' }
+});
+
+// ── Admin: Auth middleware ────────────────────────────────────
+function requireAdmin(req, res, next) {
+  if (req.session && req.session.adminUser && req.session.adminExpires > Date.now()) {
+    return next();
+  }
+  return res.status(401).json({ success: false, error: 'Unauthorized. Please login.' });
+}
+
+// ── Admin: Mask sensitive values ──────────────────────────────
+function maskVal(val) {
+  if (!val) return '(not set)';
+  if (val.length <= 8) return '••••••••';
+  return val.slice(0, 6) + '••••' + val.slice(-3);
+}
+
+// POST /api/admin/login
+app.post('/api/admin/login', adminLoginLimiter, async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: 'Username aur password dono chahiye.' });
+    }
+
+    const storedHash = process.env.ADMIN_PASSWORD_HASH;
+    const storedUser = (process.env.ADMIN_USERNAME || 'vbsadmin').toLowerCase();
+
+    if (!storedHash) {
+      console.error('[Admin] ADMIN_PASSWORD_HASH env var set nahi hai!');
+      return res.status(500).json({ success: false, error: 'Server config error.' });
+    }
+
+    const userOk = username.toLowerCase() === storedUser;
+    const passOk = userOk && await bcrypt.compare(password, storedHash);
+
+    if (passOk) {
+      req.session.adminUser    = username;
+      req.session.adminExpires = Date.now() + 3600000;
+      req.session.loginTime    = Date.now();
+      saveAdminLog('login', { user: username, ip });
+      console.log(`[Admin] Login success: ${username} from ${ip}`);
+      return res.json({ success: true, message: 'Authenticated', expiresIn: 3600 });
+    } else {
+      saveAdminLog('failed', { user: username, ip });
+      console.warn(`[Admin] Failed login: ${username} from ${ip}`);
+      return res.status(401).json({ success: false, error: 'Invalid credentials.' });
+    }
+  } catch (err) {
+    console.error('[Admin] Login error:', err);
+    return res.status(500).json({ success: false, error: 'Server error.' });
+  }
+});
+
+// POST /api/admin/logout
+app.post('/api/admin/logout', requireAdmin, (req, res) => {
+  req.session.destroy();
+  return res.json({ success: true });
+});
+
+// GET /api/admin/status
+app.get('/api/admin/status', requireAdmin, (req, res) => {
+  res.json({
+    success: true,
+    user: req.session.adminUser,
+    loginTime: req.session.loginTime,
+    expiresAt: req.session.adminExpires
+  });
+});
+
+// GET /api/admin/server-stats
+app.get('/api/admin/server-stats', requireAdmin, (req, res) => {
+  const mem   = process.memoryUsage();
+  const upSec = Math.floor(process.uptime());
+  const envKeys = [
+    'NVIDIA_API_KEY', 'DEEPSEEK_API_KEY', 'GEMINI_API_KEYS',
+    'GROQ_API_KEYS', 'OPENROUTER_API_KEY', 'MONGODB_URI',
+    'SUPABASE_KEY', 'CLOUDINARY_API_KEY', 'FIREBASE_API_KEY'
+  ];
+  res.json({
+    success: true,
+    memory: {
+      heapUsed:  Math.round(mem.heapUsed  / 1024 / 1024),
+      heapTotal: Math.round(mem.heapTotal / 1024 / 1024),
+      rss:       Math.round(mem.rss       / 1024 / 1024)
+    },
+    uptime:          upSec,
+    uptimeFormatted: `${Math.floor(upSec / 3600)}h ${Math.floor((upSec % 3600) / 60)}m`,
+    nodeVersion:     process.version,
+    env:             process.env.NODE_ENV || 'production',
+    mongodb:         mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    geminiKeys:      GEMINI_KEYS.length,
+    groqKeys:        GROQ_KEYS.length,
+    envStatus: envKeys.map(k => ({
+      key:    k,
+      set:    !!process.env[k],
+      masked: maskVal(process.env[k])
+    }))
+  });
+});
+
+// GET /api/admin/logs
+app.get('/api/admin/logs', requireAdmin, (req, res) => {
+  res.json({ success: true, logs: adminLogs.slice(0, 50) });
+});
+
+// GET /health — public uptime ping
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+console.log('Admin routes registered: /api/admin/{login,logout,status,server-stats,logs}');
 
 // ── Catch-all ────────────────────────────────────────────────
 app.get('*', (req, res) => {

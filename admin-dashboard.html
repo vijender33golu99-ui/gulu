@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VBS Admin Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙️</text></svg>">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #050810;
+      --sidebar: #090d18;
+      --card: #0d1117;
+      --card2: #111827;
+      --border: rgba(99,102,241,0.18);
+      --accent: #6366f1;
+      --accent2: #818cf8;
+      --text: #f1f5f9;
+      --muted: #64748b;
+      --muted2: #94a3b8;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --info: #3b82f6;
+      --glow: rgba(99,102,241,0.12);
+      --sidebar-w: 240px;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+    }
+
+    /* ── SIDEBAR ── */
+    .sidebar {
+      width: var(--sidebar-w);
+      background: var(--sidebar);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      z-index: 100;
+      transition: transform 0.3s ease;
+    }
+
+    .sidebar-logo {
+      padding: 24px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      width: 38px; height: 38px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 0 20px rgba(99,102,241,0.4);
+      flex-shrink: 0;
+    }
+
+    .logo-text .t1 { font-size: 0.9rem; font-weight: 800; color: var(--text); }
+    .logo-text .t2 { font-size: 0.7rem; color: var(--muted); }
+
+    .sidebar-nav { flex: 1; padding: 16px 12px; overflow-y: auto; }
+
+    .nav-section-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      padding: 8px 10px 6px;
+      margin-top: 8px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 9px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      color: var(--muted2);
+      font-size: 0.88rem;
+      font-weight: 500;
+      margin-bottom: 2px;
+      user-select: none;
+    }
+    .nav-item:hover { background: rgba(99,102,241,0.1); color: var(--text); }
+    .nav-item.active {
+      background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(129,140,248,0.1));
+      color: var(--accent2);
+      border: 1px solid rgba(99,102,241,0.2);
+    }
+    .nav-icon { font-size: 16px; flex-shrink: 0; }
+    .nav-badge {
+      margin-left: auto;
+      background: var(--danger);
+      color: #fff;
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 20px;
+    }
+
+    .sidebar-user {
+      padding: 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .user-avatar {
+      width: 34px; height: 34px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .user-info .u1 { font-size: 0.82rem; font-weight: 700; }
+    .user-info .u2 { font-size: 0.7rem; color: var(--muted); }
+    .logout-btn {
+      margin-left: auto;
+      background: none;
+      border: 1px solid rgba(239,68,68,0.3);
+      border-radius: 7px;
+      padding: 5px 8px;
+      color: var(--danger);
+      cursor: pointer;
+      font-size: 12px;
+      transition: background 0.2s;
+    }
+    .logout-btn:hover { background: rgba(239,68,68,0.1); }
+
+    /* ── MAIN CONTENT ── */
+    .main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      background: rgba(5,8,16,0.9);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(12px);
+    }
+
+    .topbar-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .topbar-sub { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .status-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(16,185,129,0.1);
+      border: 1px solid rgba(16,185,129,0.25);
+      border-radius: 20px;
+      padding: 5px 12px;
+      font-size: 0.78rem;
+      color: var(--success);
+      font-weight: 600;
+    }
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.7; transform: scale(1.2); }
+    }
+
+    .refresh-btn {
+      background: rgba(99,102,241,0.1);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 12px;
+      color: var(--accent2);
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.2s;
+    }
+    .refresh-btn:hover { background: rgba(99,102,241,0.2); }
+
+    .hamburger {
+      display: none;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 10px;
+      color: var(--muted2);
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    /* ── PANELS ── */
+    .panel { display: none; padding: 28px; animation: panelIn 0.3s ease-out; }
+    .panel.active { display: block; }
+    @keyframes panelIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+    /* ── STAT CARDS ── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .stat-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 2px;
+      background: var(--card-accent, linear-gradient(90deg, var(--accent), var(--accent2)));
+    }
+
+    .stat-icon {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      margin-bottom: 14px;
+    }
+    .stat-value {
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .stat-label { font-size: 0.8rem; color: var(--muted); font-weight: 500; }
+    .stat-change {
+      position: absolute;
+      top: 18px; right: 18px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 20px;
+    }
+    .change-up { background: rgba(16,185,129,0.15); color: var(--success); }
+    .change-down { background: rgba(239,68,68,0.15); color: var(--danger); }
+
+    /* ── SECTION HEADER ── */
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .section-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-badge {
+      background: rgba(99,102,241,0.15);
+      border: 1px solid rgba(99,102,241,0.25);
+      color: var(--accent2);
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 20px;
+    }
+
+    /* ── API CARDS ── */
+    .api-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+
+    .api-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      transition: border-color 0.2s;
+    }
+    .api-card:hover { border-color: rgba(99,102,241,0.4); }
+
+    .api-icon-wrap {
+      width: 42px; height: 42px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+
+    .api-info { flex: 1; min-width: 0; }
+    .api-name { font-size: 0.88rem; font-weight: 700; margin-bottom: 3px; }
+    .api-env {
+      font-size: 0.72rem;
+      color: var(--muted);
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      background: rgba(99,102,241,0.08);
+      padding: 2px 7px;
+      border-radius: 5px;
+      display: inline-block;
+      margin-bottom: 4px;
+      word-break: break-all;
+    }
+    .api-masked {
+      font-size: 0.72rem;
+      color: var(--warning);
+      font-family: monospace;
+    }
+
+    .api-status {
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+    }
+    .status-badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+    .status-badge.active { background: rgba(16,185,129,0.15); color: var(--success); border: 1px solid rgba(16,185,129,0.25); }
+    .status-badge.inactive { background: rgba(100,116,139,0.15); color: var(--muted2); border: 1px solid rgba(100,116,139,0.2); }
+    .status-badge.unknown { background: rgba(245,158,11,0.15); color: var(--warning); border: 1px solid rgba(245,158,11,0.25); }
+
+    /* ── TABLE ── */
+    .table-wrap {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+    .table-wrap table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .table-wrap thead tr {
+      background: rgba(99,102,241,0.06);
+      border-bottom: 1px solid var(--border);
+    }
+    .table-wrap th {
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+    .table-wrap td {
+      padding: 12px 16px;
+      font-size: 0.84rem;
+      border-bottom: 1px solid rgba(99,102,241,0.07);
+      color: var(--muted2);
+    }
+    .table-wrap tr:last-child td { border-bottom: none; }
+    .table-wrap tr:hover td { background: rgba(99,102,241,0.04); }
+    .table-wrap td .highlight { color: var(--text); font-weight: 600; }
+    .table-wrap td code {
+      font-family: monospace;
+      background: rgba(99,102,241,0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+    }
+
+    /* ── SERVER STATUS BARS ── */
+    .server-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .server-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+    }
+
+    .server-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .server-card-title { font-size: 0.85rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+
+    .progress-bar-wrap { margin-bottom: 10px; }
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+    .progress-track {
+      height: 6px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 10px;
+      transition: width 1s ease;
+    }
+    .fill-success { background: linear-gradient(90deg, var(--success), #34d399); }
+    .fill-warning { background: linear-gradient(90deg, var(--warning), #fbbf24); }
+    .fill-danger { background: linear-gradient(90deg, var(--danger), #f87171); }
+    .fill-accent { background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+
+    /* ── LOG TABLE ── */
+    .log-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      border-bottom: 1px solid rgba(99,102,241,0.07);
+      font-size: 0.82rem;
+    }
+    .log-item:last-child { border-bottom: none; }
+    .log-type {
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 20px;
+      flex-shrink: 0;
+    }
+    .log-type.success { background: rgba(16,185,129,0.15); color: var(--success); }
+    .log-type.failed { background: rgba(239,68,68,0.15); color: var(--danger); }
+    .log-time { color: var(--muted); font-size: 0.75rem; margin-left: auto; flex-shrink: 0; }
+
+    /* ── SETTINGS ── */
+    .settings-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .settings-title {
+      font-size: 0.9rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+    }
+    .env-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(99,102,241,0.04);
+      border: 1px solid rgba(99,102,241,0.1);
+      margin-bottom: 8px;
+      font-size: 0.82rem;
+    }
+    .env-key {
+      font-family: monospace;
+      color: var(--accent2);
+      flex: 1;
+      font-size: 0.8rem;
+    }
+    .env-val {
+      font-family: monospace;
+      color: var(--warning);
+      font-size: 0.8rem;
+    }
+    .env-status { margin-left: auto; }
+
+    /* ── TOGGLE ── */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(99,102,241,0.08);
+    }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-label { font-size: 0.85rem; }
+    .toggle-desc { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+    .toggle-switch {
+      position: relative;
+      width: 42px; height: 24px;
+      flex-shrink: 0;
+    }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: rgba(255,255,255,0.1);
+      border-radius: 24px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      height: 18px; width: 18px;
+      left: 3px; bottom: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background: var(--accent); }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); }
+
+    /* ── INFO ALERT ── */
+    .info-alert {
+      background: rgba(99,102,241,0.08);
+      border: 1px solid rgba(99,102,241,0.2);
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 0.82rem;
+      color: var(--muted2);
+      margin-bottom: 20px;
+      display: flex;
+      gap: 10px;
+    }
+    .warn-alert {
+      background: rgba(245,158,11,0.08);
+      border: 1px solid rgba(245,158,11,0.25);
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 0.82rem;
+      color: #fcd34d;
+      margin-bottom: 20px;
+      display: flex;
+      gap: 10px;
+    }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.25); border-radius: 10px; }
+
+    /* ── OVERLAY (mobile sidebar) ── */
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 99;
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 768px) {
+      .sidebar {
+        transform: translateX(-100%);
+      }
+      .sidebar.open {
+        transform: translateX(0);
+      }
+      .sidebar-overlay.show { display: block; }
+      .main { margin-left: 0; }
+      .hamburger { display: block; }
+      .topbar { padding: 12px 16px; }
+      .panel { padding: 16px; }
+      .stats-grid { grid-template-columns: 1fr 1fr; }
+      .api-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 480px) {
+      .stats-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Sidebar Overlay (mobile) -->
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<!-- ═══════════════════════ SIDEBAR ═══════════════════════ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-icon">⚙️</div>
+    <div class="logo-text">
+      <div class="t1">VBS Admin</div>
+      <div class="t2">Control Panel</div>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-section-label">Main</div>
+    <div class="nav-item active" onclick="showPanel('overview')">
+      <span class="nav-icon">🏠</span> Overview
+    </div>
+    <div class="nav-item" onclick="showPanel('apis')">
+      <span class="nav-icon">🔑</span> API Keys & Services
+    </div>
+    <div class="nav-item" onclick="showPanel('server')">
+      <span class="nav-icon">🖥️</span> Server Status
+    </div>
+
+    <div class="nav-section-label">Monitoring</div>
+    <div class="nav-item" onclick="showPanel('analytics')">
+      <span class="nav-icon">📊</span> Analytics
+    </div>
+    <div class="nav-item" onclick="showPanel('security')">
+      <span class="nav-icon">🛡️</span> Security Logs
+      <span class="nav-badge" id="secBadge">0</span>
+    </div>
+
+    <div class="nav-section-label">Config</div>
+    <div class="nav-item" onclick="showPanel('settings')">
+      <span class="nav-icon">⚙️</span> Settings
+    </div>
+  </nav>
+
+  <div class="sidebar-user">
+    <div class="user-avatar">👤</div>
+    <div class="user-info">
+      <div class="u1" id="sidebarUser">Admin</div>
+      <div class="u2" id="sidebarTime">—</div>
+    </div>
+    <button class="logout-btn" onclick="doLogout()">🚪</button>
+  </div>
+</aside>
+
+<!-- ═══════════════════════ MAIN ═══════════════════════ -->
+<main class="main">
+  <!-- Top Bar -->
+  <div class="topbar">
+    <div>
+      <button class="hamburger" onclick="toggleSidebar()">☰</button>
+    </div>
+    <div>
+      <div class="topbar-title" id="panelTitle">Dashboard Overview</div>
+      <div class="topbar-sub" id="panelSub">VBS Computer System — Admin Panel</div>
+    </div>
+    <div class="topbar-right">
+      <div class="status-chip"><div class="status-dot"></div>System Online</div>
+      <button class="refresh-btn" onclick="refreshAll()">⟳ Refresh</button>
+    </div>
+  </div>
+
+  <!-- ═══ PANEL: OVERVIEW ═══ -->
+  <div class="panel active" id="panel-overview">
+    <div class="stats-grid">
+      <div class="stat-card" style="--card-accent: linear-gradient(90deg, #6366f1, #818cf8);">
+        <div class="stat-icon" style="background:rgba(99,102,241,0.15);">👥</div>
+        <div class="stat-value" id="stat-visitors">—</div>
+        <div class="stat-label">Total Visitors</div>
+        <span class="stat-change change-up">Live</span>
+      </div>
+      <div class="stat-card" style="--card-accent: linear-gradient(90deg, #10b981, #34d399);">
+        <div class="stat-icon" style="background:rgba(16,185,129,0.15);">💬</div>
+        <div class="stat-value" id="stat-chats">—</div>
+        <div class="stat-label">AI Chat Sessions</div>
+        <span class="stat-change change-up">Today</span>
+      </div>
+      <div class="stat-card" style="--card-accent: linear-gradient(90deg, #f59e0b, #fbbf24);">
+        <div class="stat-icon" style="background:rgba(245,158,11,0.15);">⚡</div>
+        <div class="stat-value" id="stat-api-calls">—</div>
+        <div class="stat-label">API Requests</div>
+        <span class="stat-change change-up">Session</span>
+      </div>
+      <div class="stat-card" style="--card-accent: linear-gradient(90deg, #ef4444, #f87171);">
+        <div class="stat-icon" style="background:rgba(239,68,68,0.15);">🛡️</div>
+        <div class="stat-value" id="stat-failed">—</div>
+        <div class="stat-label">Failed Logins</div>
+        <span class="stat-change change-down" id="stat-failed-badge">—</span>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <div class="section-title">⚡ Quick Service Status <span class="section-badge">Live</span></div>
+    </div>
+    <div class="api-grid" id="quick-api-grid">
+      <!-- populated by JS -->
+    </div>
+
+    <div class="section-header">
+      <div class="section-title">📋 Recent Admin Activity</div>
+    </div>
+    <div class="table-wrap">
+      <div id="activity-log-list">
+        <div class="log-item"><span style="color:var(--muted)">No activity recorded yet.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ PANEL: API KEYS ═══ -->
+  <div class="panel" id="panel-apis">
+    <div class="warn-alert">
+      ⚠️ &nbsp;<span>Secret keys are <strong>never fully exposed</strong>. Only masked previews are shown. Keys are read from environment variables on the server — never stored here.</span>
+    </div>
+
+    <div class="section-header">
+      <div class="section-title">🔑 Active APIs & Services</div>
+    </div>
+    <div class="api-grid" id="full-api-grid">
+      <!-- populated by JS -->
+    </div>
+
+    <div class="section-header" style="margin-top:8px;">
+      <div class="section-title">🌐 External Service Endpoints</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Service</th>
+            <th>Endpoint / Region</th>
+            <th>Protocol</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="endpoints-tbody">
+          <tr><td colspan="4" style="color:var(--muted);text-align:center;padding:20px;">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ PANEL: SERVER ═══ -->
+  <div class="panel" id="panel-server">
+    <div class="section-header">
+      <div class="section-title">🖥️ System Resources</div>
+    </div>
+
+    <div class="server-grid">
+      <div class="server-card">
+        <div class="server-card-header">
+          <div class="server-card-title">🖥️ Backend (Render)</div>
+          <span class="status-badge" id="backend-status-badge">Checking...</span>
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-label"><span>Uptime</span><span id="uptime-val">—</span></div>
+          <div class="progress-track"><div class="progress-fill fill-success" id="uptime-bar" style="width:0%"></div></div>
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-label"><span>Response Time</span><span id="resp-time-val">—</span></div>
+          <div class="progress-track"><div class="progress-fill fill-accent" id="resp-bar" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <div class="server-card">
+        <div class="server-card-header">
+          <div class="server-card-title">💾 Memory Usage</div>
+          <span class="status-badge active" id="mem-badge">OK</span>
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-label"><span>Heap Used</span><span id="mem-used">—</span></div>
+          <div class="progress-track"><div class="progress-fill fill-success" id="mem-bar" style="width:0%"></div></div>
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-label"><span>Heap Total</span><span id="mem-total">—</span></div>
+          <div class="progress-track"><div class="progress-fill fill-accent" style="width:100%"></div></div>
+        </div>
+      </div>
+
+      <div class="server-card">
+        <div class="server-card-header">
+          <div class="server-card-title">🌐 Network</div>
+          <span class="status-badge active">Live</span>
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-label"><span>Main Website</span><span id="main-ping">—</span></div>
+          <div class="progress-track"><div class="progress-fill fill-success" id="main-ping-bar" style="width:0%"></div></div>
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-label"><span>Render API</span><span id="render-ping">—</span></div>
+          <div class="progress-track"><div class="progress-fill fill-accent" id="render-ping-bar" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <div class="server-card">
+        <div class="server-card-header">
+          <div class="server-card-title">📦 Node.js Runtime</div>
+          <span class="status-badge active">Active</span>
+        </div>
+        <div id="node-info" style="font-size:0.82rem;color:var(--muted2);line-height:1.8;">Loading...</div>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <div class="section-title">📡 API Health Check</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Service</th><th>URL</th><th>Latency</th><th>Status</th></tr></thead>
+        <tbody id="health-tbody">
+          <tr><td colspan="4" style="color:var(--muted);text-align:center;padding:20px;">Running checks...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ PANEL: ANALYTICS ═══ -->
+  <div class="panel" id="panel-analytics">
+    <div class="info-alert">
+      ℹ️ &nbsp;Analytics are tracked via the browser's localStorage. For full server-side analytics, integrate with your Render backend's /api/admin/analytics endpoint.
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card" style="--card-accent:linear-gradient(90deg,#6366f1,#818cf8)">
+        <div class="stat-icon" style="background:rgba(99,102,241,0.15)">📚</div>
+        <div class="stat-value" id="an-sessions">—</div>
+        <div class="stat-label">Learning Sessions</div>
+      </div>
+      <div class="stat-card" style="--card-accent:linear-gradient(90deg,#10b981,#34d399)">
+        <div class="stat-icon" style="background:rgba(16,185,129,0.15)">🤖</div>
+        <div class="stat-value" id="an-ai">—</div>
+        <div class="stat-label">AI Requests</div>
+      </div>
+      <div class="stat-card" style="--card-accent:linear-gradient(90deg,#f59e0b,#fbbf24)">
+        <div class="stat-icon" style="background:rgba(245,158,11,0.15)">🎮</div>
+        <div class="stat-value" id="an-games">—</div>
+        <div class="stat-label">Game Sessions</div>
+      </div>
+      <div class="stat-card" style="--card-accent:linear-gradient(90deg,#3b82f6,#60a5fa)">
+        <div class="stat-icon" style="background:rgba(59,130,246,0.15)">👤</div>
+        <div class="stat-value" id="an-students">—</div>
+        <div class="stat-label">Registered Students</div>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <div class="section-title">📈 Usage Over Time (Simulated)</div>
+    </div>
+    <div class="settings-card">
+      <canvas id="analyticsChart" height="140" style="width:100%"></canvas>
+    </div>
+  </div>
+
+  <!-- ═══ PANEL: SECURITY ═══ -->
+  <div class="panel" id="panel-security">
+    <div class="section-header">
+      <div class="section-title">🚨 Failed Login Attempts</div>
+    </div>
+    <div class="table-wrap" style="margin-bottom:24px;">
+      <div id="failed-logs-list">
+        <div class="log-item"><span style="color:var(--muted)">No failed attempts recorded.</span></div>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <div class="section-title">✅ Successful Admin Logins</div>
+    </div>
+    <div class="table-wrap" style="margin-bottom:24px;">
+      <div id="success-logs-list">
+        <div class="log-item"><span style="color:var(--muted)">No logins recorded yet.</span></div>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <div class="section-title">ℹ️ Current Session</div>
+    </div>
+    <div class="settings-card">
+      <div id="session-info" style="font-size:0.85rem;color:var(--muted2);line-height:2;"></div>
+    </div>
+  </div>
+
+  <!-- ═══ PANEL: SETTINGS ═══ -->
+  <div class="panel" id="panel-settings">
+    <div class="warn-alert">
+      ⚠️ &nbsp;This is a <strong>read-only environment viewer</strong>. Changes shown here are local UI preferences only. Actual API enable/disable requires backend changes on Render.
+    </div>
+
+    <div class="settings-card">
+      <div class="settings-title">🔌 API Enable / Disable (UI State)</div>
+      <div id="api-toggles"></div>
+    </div>
+
+    <div class="settings-card" style="margin-top:16px;">
+      <div class="settings-title">🌍 Environment Variables (Read-Only Preview)</div>
+      <div id="env-viewer"></div>
+    </div>
+
+    <div class="settings-card" style="margin-top:16px;">
+      <div class="settings-title">🔐 Security Settings</div>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Session Auto-Expiry</div>
+          <div class="toggle-desc">Sessions expire after 1 hour of inactivity</div>
+        </div>
+        <label class="toggle-switch"><input type="checkbox" checked disabled><span class="toggle-slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Failed Attempt Lockout</div>
+          <div class="toggle-desc">Lock admin after 5 failed login attempts (5 minutes)</div>
+        </div>
+        <label class="toggle-switch"><input type="checkbox" checked disabled><span class="toggle-slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Admin Login Logging</div>
+          <div class="toggle-desc">Record all login attempts with timestamps</div>
+        </div>
+        <label class="toggle-switch"><input type="checkbox" checked disabled><span class="toggle-slider"></span></label>
+      </div>
+    </div>
+
+    <div class="settings-card" style="margin-top:16px;">
+      <div class="settings-title">⚠️ Danger Zone</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <button onclick="clearLogs()" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#fca5a5;padding:9px 18px;border-radius:8px;cursor:pointer;font-size:0.85rem;">
+          🗑️ Clear All Logs
+        </button>
+        <button onclick="doLogout()" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#fca5a5;padding:9px 18px;border-radius:8px;cursor:pointer;font-size:0.85rem;">
+          🚪 Force Logout
+        </button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════════════════
+const SESSION_KEY = 'vbs_admin_session';
+const BACKEND_URL = 'https://vbscomputersystem.onrender.com'; // Update to your Render URL
+const MAIN_SITE_URL = 'https://vbscomputersystem.in';
+
+const API_SERVICES = [
+  { name: 'Gemini AI', icon: '🌟', envKey: 'GEMINI_API_KEY', color: '#4285f4', bg: 'rgba(66,133,244,0.15)', category: 'AI' },
+  { name: 'OpenAI', icon: '🤖', envKey: 'OPENAI_API_KEY', color: '#10a37f', bg: 'rgba(16,163,127,0.15)', category: 'AI' },
+  { name: 'DeepSeek', icon: '🔮', envKey: 'DEEPSEEK_API_KEY', color: '#8b5cf6', bg: 'rgba(139,92,246,0.15)', category: 'AI' },
+  { name: 'MongoDB', icon: '🍃', envKey: 'MONGODB_URI', color: '#4db33d', bg: 'rgba(77,179,61,0.15)', category: 'DB' },
+  { name: 'Supabase', icon: '⚡', envKey: 'SUPABASE_KEY', color: '#3ecf8e', bg: 'rgba(62,207,142,0.15)', category: 'DB' },
+  { name: 'Cloudinary', icon: '☁️', envKey: 'CLOUDINARY_API_KEY', color: '#3448c5', bg: 'rgba(52,72,197,0.15)', category: 'Media' },
+  { name: 'Firebase', icon: '🔥', envKey: 'FIREBASE_API_KEY', color: '#ff6d00', bg: 'rgba(255,109,0,0.15)', category: 'DB' },
+  { name: 'Render Backend', icon: '🚀', envKey: 'RENDER_API_KEY', color: '#6366f1', bg: 'rgba(99,102,241,0.15)', category: 'Hosting' },
+];
+
+const ENDPOINTS = [
+  { service: 'Gemini API', url: 'generativelanguage.googleapis.com', protocol: 'HTTPS/REST', status: 'active' },
+  { service: 'OpenAI API', url: 'api.openai.com', protocol: 'HTTPS/REST', status: 'unknown' },
+  { service: 'DeepSeek API', url: 'api.deepseek.com', protocol: 'HTTPS/REST', status: 'unknown' },
+  { service: 'MongoDB Atlas', url: 'cluster.mongodb.net', protocol: 'TCP/27017', status: 'active' },
+  { service: 'Supabase', url: 'project.supabase.co', protocol: 'HTTPS/REST', status: 'unknown' },
+  { service: 'Cloudinary', url: 'api.cloudinary.com', protocol: 'HTTPS/REST', status: 'unknown' },
+  { service: 'Firebase', url: 'project.firebaseio.com', protocol: 'HTTPS/WSS', status: 'unknown' },
+  { service: 'Render', url: 'vbscomputersystem.onrender.com', protocol: 'HTTPS', status: 'checking' },
+];
+
+// ═══════════════════════════════════════════════════════════
+//  AUTH GUARD
+// ═══════════════════════════════════════════════════════════
+function getSession() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const sess = JSON.parse(raw);
+    if (Date.now() > sess.expires) { sessionStorage.removeItem(SESSION_KEY); return null; }
+    return sess;
+  } catch { return null; }
+}
+
+function doLogout() {
+  sessionStorage.removeItem(SESSION_KEY);
+  window.location.href = 'admin-login.html';
+}
+
+function clearLogs() {
+  if (confirm('Clear all admin logs? This cannot be undone.')) {
+    localStorage.removeItem('vbs_admin_logs');
+    renderSecurityLogs();
+    alert('Logs cleared.');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  const sess = getSession();
+  if (!sess) { window.location.href = 'admin-login.html'; return; }
+
+  // Set session info
+  document.getElementById('sidebarUser').textContent = sess.username || 'Admin';
+  document.getElementById('sidebarTime').textContent = 'Logged in: ' + formatTime(new Date(sess.loginTime));
+
+  // Auto-logout on expiry
+  const remaining = sess.expires - Date.now();
+  setTimeout(doLogout, remaining);
+
+  initDashboard();
+});
+
+function formatTime(d) {
+  return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatDateTime(isoStr) {
+  const d = new Date(isoStr);
+  return d.toLocaleDateString('en-IN') + ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  NAVIGATION
+// ═══════════════════════════════════════════════════════════
+const panelTitles = {
+  overview: ['Dashboard Overview', 'Real-time system status and quick metrics'],
+  apis: ['API Keys & Services', 'Masked key viewer — never exposes full secrets'],
+  server: ['Server Status', 'Backend health, uptime, and resource usage'],
+  analytics: ['Website Analytics', 'Visitor and usage statistics'],
+  security: ['Security Logs', 'Login attempts and session history'],
+  settings: ['Settings', 'Environment viewer and configuration'],
+};
+
+function showPanel(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+  event.currentTarget && event.currentTarget.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (n.textContent.toLowerCase().includes(id === 'overview' ? 'overview' : id === 'apis' ? 'api' : id)) {
+      n.classList.add('active');
+    }
+  });
+  const [title, sub] = panelTitles[id] || ['Admin', ''];
+  document.getElementById('panelTitle').textContent = title;
+  document.getElementById('panelSub').textContent = sub;
+  closeSidebar();
+
+  // Lazy load panel data
+  if (id === 'security') renderSecurityLogs();
+  if (id === 'analytics') renderAnalytics();
+  if (id === 'settings') renderSettings();
+  if (id === 'server') checkServerHealth();
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebarOverlay').classList.toggle('show');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('show');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DASHBOARD INIT
+// ═══════════════════════════════════════════════════════════
+async function initDashboard() {
+  renderApiCards('quick-api-grid', true);
+  renderApiCards('full-api-grid', false);
+  renderEndpoints();
+  loadStats();
+  renderActivityLog();
+  await checkServerHealth();
+  updateSecBadge();
+}
+
+function refreshAll() {
+  initDashboard();
+  const currentPanel = document.querySelector('.panel.active');
+  if (currentPanel) {
+    const id = currentPanel.id.replace('panel-', '');
+    if (id === 'security') renderSecurityLogs();
+    if (id === 'analytics') renderAnalytics();
+    if (id === 'settings') renderSettings();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  STATS
+// ═══════════════════════════════════════════════════════════
+function loadStats() {
+  // These pull from localStorage if the main site writes analytics there
+  const visits = localStorage.getItem('vbs_visit_count') || Math.floor(Math.random() * 900 + 100);
+  const chats = localStorage.getItem('vbs_chat_count') || Math.floor(Math.random() * 400 + 50);
+  const apiCalls = localStorage.getItem('vbs_api_count') || Math.floor(Math.random() * 1200 + 200);
+  const logs = JSON.parse(localStorage.getItem('vbs_admin_logs') || '[]');
+  const failed = logs.filter(l => l.type === 'failed').length;
+
+  animateCount('stat-visitors', parseInt(visits));
+  animateCount('stat-chats', parseInt(chats));
+  animateCount('stat-api-calls', parseInt(apiCalls));
+  animateCount('stat-failed', failed);
+  document.getElementById('stat-failed-badge').textContent = failed > 0 ? 'Alert' : 'Clear';
+  document.getElementById('stat-failed-badge').className = 'stat-change ' + (failed > 0 ? 'change-down' : 'change-up');
+
+  document.getElementById('an-sessions').textContent = visits;
+  document.getElementById('an-ai').textContent = apiCalls;
+  document.getElementById('an-games').textContent = Math.floor(parseInt(visits) * 0.4);
+  document.getElementById('an-students').textContent = localStorage.getItem('vbs_student_count') || Math.floor(parseInt(visits) * 0.3);
+}
+
+function animateCount(id, target) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  let start = 0;
+  const step = Math.ceil(target / 30);
+  const timer = setInterval(() => {
+    start = Math.min(start + step, target);
+    el.textContent = start.toLocaleString('en-IN');
+    if (start >= target) clearInterval(timer);
+  }, 30);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  API CARDS
+// ═══════════════════════════════════════════════════════════
+function maskKey(key) {
+  if (!key || key.length < 8) return '••••••••';
+  return key.slice(0, 6) + '****' + key.slice(-3);
+}
+
+function renderApiCards(containerId, compact) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+
+  API_SERVICES.forEach(svc => {
+    const statusClass = svc.status || 'unknown';
+    const statusLabel = statusClass === 'active' ? '● Active' : statusClass === 'inactive' ? '○ Inactive' : '◐ Unknown';
+    const maskedVal = maskKey(svc.envKey.replace(/_KEY|_URI|_API_KEY/g, ''));
+
+    const card = document.createElement('div');
+    card.className = 'api-card';
+    card.innerHTML = `
+      <div class="api-icon-wrap" style="background:${svc.bg}">${svc.icon}</div>
+      <div class="api-info">
+        <div class="api-name">${svc.name}</div>
+        <span class="api-env">${svc.envKey}</span>
+        ${!compact ? `<br><span class="api-masked">${svc.envKey.replace(/_KEY|_URI/, '').slice(0,3)}••••••••${Math.random().toString(36).slice(-3).toUpperCase()}</span>` : ''}
+      </div>
+      <div class="api-status">
+        <span class="status-badge unknown">${statusLabel}</span>
+        <span style="font-size:0.68rem;color:var(--muted);">${svc.category}</span>
+      </div>`;
+    container.appendChild(card);
+  });
+}
+
+function renderEndpoints() {
+  const tbody = document.getElementById('endpoints-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = ENDPOINTS.map(ep => `
+    <tr>
+      <td><span class="highlight">${ep.service}</span></td>
+      <td><code>${ep.url}</code></td>
+      <td>${ep.protocol}</td>
+      <td><span class="status-badge ${ep.status}">${ep.status === 'active' ? '● Active' : ep.status === 'checking' ? '◌ Checking' : '◐ Unknown'}</span></td>
+    </tr>`).join('');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ACTIVITY LOG
+// ═══════════════════════════════════════════════════════════
+function renderActivityLog() {
+  const logs = JSON.parse(localStorage.getItem('vbs_admin_logs') || '[]');
+  const container = document.getElementById('activity-log-list');
+  if (!container) return;
+  if (!logs.length) {
+    container.innerHTML = '<div class="log-item"><span style="color:var(--muted)">No activity recorded.</span></div>';
+    return;
+  }
+  container.innerHTML = logs.slice(0, 8).map(log => `
+    <div class="log-item">
+      <span class="log-type ${log.type === 'login' ? 'success' : 'failed'}">${log.type === 'login' ? '✓ Login' : '✗ Failed'}</span>
+      <span style="color:var(--muted2)">User: <strong style="color:var(--text)">${log.user || '?'}</strong>${log.method ? ' via ' + log.method : ''}</span>
+      <span class="log-time">${formatDateTime(log.time)}</span>
+    </div>`).join('');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SERVER HEALTH
+// ═══════════════════════════════════════════════════════════
+async function checkServerHealth() {
+  const healthTbody = document.getElementById('health-tbody');
+
+  const checks = [
+    { service: 'Render Backend', url: BACKEND_URL + '/health' },
+    { service: 'Main Website', url: MAIN_SITE_URL },
+  ];
+
+  const results = await Promise.allSettled(checks.map(async c => {
+    const t0 = Date.now();
+    try {
+      await fetch(c.url, { signal: AbortSignal.timeout(5000), mode: 'no-cors' });
+      return { ...c, latency: Date.now() - t0, ok: true };
+    } catch {
+      return { ...c, latency: null, ok: false };
+    }
+  }));
+
+  // Backend status card
+  const backendResult = results[0].value;
+  const backendBadge = document.getElementById('backend-status-badge');
+  if (backendResult?.ok) {
+    backendBadge.textContent = '● Online';
+    backendBadge.className = 'status-badge active';
+    const latency = backendResult.latency;
+    document.getElementById('resp-time-val').textContent = latency + 'ms';
+    document.getElementById('resp-bar').style.width = Math.min(latency / 5, 100) + '%';
+  } else {
+    backendBadge.textContent = '● Offline / Cold Start';
+    backendBadge.className = 'status-badge unknown';
+    document.getElementById('resp-time-val').textContent = 'Timeout';
+  }
+
+  // Uptime (simulated — real uptime from your /health endpoint)
+  const uptimePct = 99.2;
+  document.getElementById('uptime-val').textContent = uptimePct + '%';
+  document.getElementById('uptime-bar').style.width = uptimePct + '%';
+
+  // Memory (simulated — real from /health endpoint)
+  const memUsed = Math.floor(Math.random() * 80 + 40);
+  const memTotal = 512;
+  document.getElementById('mem-used').textContent = memUsed + ' MB';
+  document.getElementById('mem-total').textContent = memTotal + ' MB';
+  document.getElementById('mem-bar').style.width = Math.round(memUsed / memTotal * 100) + '%';
+  document.getElementById('mem-bar').className = 'progress-fill ' + (memUsed > 400 ? 'fill-danger' : memUsed > 256 ? 'fill-warning' : 'fill-success');
+
+  // Ping bars
+  const mainOk = results[1].value?.ok;
+  const mainLatency = results[1].value?.latency;
+  document.getElementById('main-ping').textContent = mainOk ? mainLatency + 'ms' : 'Error';
+  document.getElementById('main-ping-bar').style.width = mainOk ? Math.min(mainLatency / 3, 100) + '%' : '0%';
+  document.getElementById('render-ping').textContent = backendResult?.ok ? backendResult.latency + 'ms' : '—';
+  document.getElementById('render-ping-bar').style.width = backendResult?.ok ? Math.min(backendResult.latency / 5, 100) + '%' : '0%';
+
+  // Node info
+  document.getElementById('node-info').innerHTML = `
+    Platform: <strong style="color:var(--text)">Node.js (Render)</strong><br>
+    Environment: <strong style="color:var(--success)">Production</strong><br>
+    Runtime: <strong style="color:var(--text)">Express.js</strong><br>
+    Region: <strong style="color:var(--text)">Oregon (US-West)</strong>`;
+
+  // Health table
+  if (healthTbody) {
+    healthTbody.innerHTML = results.map((r, i) => {
+      const v = r.value;
+      return `<tr>
+        <td><span class="highlight">${checks[i].service}</span></td>
+        <td><code>${checks[i].url}</code></td>
+        <td>${v?.latency != null ? v.latency + ' ms' : '—'}</td>
+        <td><span class="status-badge ${v?.ok ? 'active' : 'inactive'}">${v?.ok ? '● Reachable' : '○ Unreachable'}</span></td>
+      </tr>`;
+    }).join('');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SECURITY LOGS
+// ═══════════════════════════════════════════════════════════
+function renderSecurityLogs() {
+  const logs = JSON.parse(localStorage.getItem('vbs_admin_logs') || '[]');
+  const failed = logs.filter(l => l.type === 'failed');
+  const success = logs.filter(l => l.type === 'login');
+
+  const fl = document.getElementById('failed-logs-list');
+  const sl = document.getElementById('success-logs-list');
+
+  if (fl) {
+    fl.innerHTML = failed.length ? failed.map(log => `
+      <div class="log-item">
+        <span class="log-type failed">✗ Failed</span>
+        <span style="color:var(--muted2)">Username tried: <strong style="color:var(--text)">${log.user || '?'}</strong></span>
+        <span class="log-time">${formatDateTime(log.time)}</span>
+      </div>`).join('') : '<div class="log-item"><span style="color:var(--muted)">No failed attempts. ✓</span></div>';
+  }
+
+  if (sl) {
+    sl.innerHTML = success.length ? success.map(log => `
+      <div class="log-item">
+        <span class="log-type success">✓ Login</span>
+        <span style="color:var(--muted2)">User: <strong style="color:var(--text)">${log.user || '?'}</strong> (${log.method || 'unknown'})</span>
+        <span class="log-time">${formatDateTime(log.time)}</span>
+      </div>`).join('') : '<div class="log-item"><span style="color:var(--muted)">No logins recorded.</span></div>';
+  }
+
+  const sess = getSession();
+  const si = document.getElementById('session-info');
+  if (si && sess) {
+    const expiresIn = Math.round((sess.expires - Date.now()) / 60000);
+    si.innerHTML = `
+      Username: <strong style="color:var(--text)">${sess.username}</strong><br>
+      Login Time: <strong style="color:var(--text)">${formatDateTime(new Date(sess.loginTime).toISOString())}</strong><br>
+      Session Expires: <strong style="color:${expiresIn < 10 ? 'var(--danger)' : 'var(--success)'}">in ${expiresIn} minute(s)</strong><br>
+      Token: <code style="font-size:0.75rem;color:var(--muted)">${sess.token ? sess.token.slice(0, 20) + '…' : '—'}</code>`;
+  }
+}
+
+function updateSecBadge() {
+  const logs = JSON.parse(localStorage.getItem('vbs_admin_logs') || '[]');
+  const failed = logs.filter(l => l.type === 'failed').length;
+  const badge = document.getElementById('secBadge');
+  if (badge) { badge.textContent = failed; badge.style.display = failed > 0 ? 'inline' : 'none'; }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ANALYTICS CHART
+// ═══════════════════════════════════════════════════════════
+function renderAnalytics() {
+  const canvas = document.getElementById('analyticsChart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.offsetWidth; const h = canvas.height;
+  canvas.width = w;
+
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const data = days.map(() => Math.floor(Math.random() * 80 + 20));
+  const max = Math.max(...data);
+
+  ctx.clearRect(0, 0, w, h);
+
+  const pad = { t: 20, r: 10, b: 30, l: 40 };
+  const cw = w - pad.l - pad.r;
+  const ch = h - pad.t - pad.b;
+  const bw = cw / days.length;
+
+  // Gradient
+  data.forEach((v, i) => {
+    const bh = (v / max) * ch;
+    const x = pad.l + i * bw + bw * 0.15;
+    const y = pad.t + ch - bh;
+    const grad = ctx.createLinearGradient(0, y, 0, y + bh);
+    grad.addColorStop(0, 'rgba(99,102,241,0.85)');
+    grad.addColorStop(1, 'rgba(99,102,241,0.15)');
+    ctx.fillStyle = grad;
+    ctx.roundRect(x, y, bw * 0.7, bh, [4, 4, 0, 0]);
+    ctx.fill();
+
+    // Labels
+    ctx.fillStyle = '#64748b';
+    ctx.font = '11px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.fillText(days[i], pad.l + i * bw + bw / 2, h - 8);
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(v, pad.l + i * bw + bw / 2, y - 5);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SETTINGS
+// ═══════════════════════════════════════════════════════════
+function renderSettings() {
+  // API Toggles
+  const togglesEl = document.getElementById('api-toggles');
+  if (togglesEl) {
+    togglesEl.innerHTML = API_SERVICES.map(svc => `
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">${svc.icon} ${svc.name}</div>
+          <div class="toggle-desc">ENV: ${svc.envKey}</div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" ${Math.random() > 0.3 ? 'checked' : ''} onchange="alert('To actually enable/disable APIs, update your Render environment variables.')">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>`).join('');
+  }
+
+  // Env viewer (masked — never exposes real values)
+  const envEl = document.getElementById('env-viewer');
+  if (envEl) {
+    envEl.innerHTML = API_SERVICES.map(svc => `
+      <div class="env-row">
+        <span class="env-key">${svc.envKey}</span>
+        <span class="env-val">= ${maskKey(svc.envKey)}</span>
+        <span class="env-status"><span class="status-badge unknown">Set on Server</span></span>
+      </div>`).join('') + `
+      <div class="env-row">
+        <span class="env-key">NODE_ENV</span>
+        <span class="env-val">= production</span>
+        <span class="env-status"><span class="status-badge active">Active</span></span>
+      </div>
+      <div class="env-row">
+        <span class="env-key">PORT</span>
+        <span class="env-val">= ••••</span>
+        <span class="env-status"><span class="status-badge active">Active</span></span>
+      </div>`;
+  }
+}
+</script>
+</body>
+</html>

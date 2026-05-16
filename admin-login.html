@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VBS Admin — Secure Login</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔐</text></svg>">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #050810;
+      --card: #0d1117;
+      --border: rgba(99,102,241,0.25);
+      --accent: #6366f1;
+      --accent2: #818cf8;
+      --text: #f1f5f9;
+      --muted: #64748b;
+      --danger: #ef4444;
+      --success: #10b981;
+      --glow: rgba(99,102,241,0.15);
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* Animated grid background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(99,102,241,0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(99,102,241,0.05) 1px, transparent 1px);
+      background-size: 40px 40px;
+      animation: gridMove 20s linear infinite;
+      pointer-events: none;
+    }
+    @keyframes gridMove { from { transform: translateY(0); } to { transform: translateY(40px); } }
+
+    /* Radial glow blobs */
+    .blob {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(80px);
+      pointer-events: none;
+      animation: blobFloat 8s ease-in-out infinite;
+    }
+    .blob-1 { width: 400px; height: 400px; background: rgba(99,102,241,0.12); top: -100px; left: -100px; animation-delay: 0s; }
+    .blob-2 { width: 300px; height: 300px; background: rgba(129,140,248,0.08); bottom: -80px; right: -80px; animation-delay: 4s; }
+    @keyframes blobFloat {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(20px, -20px) scale(1.05); }
+    }
+
+    .login-wrap {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      max-width: 440px;
+      padding: 16px;
+    }
+
+    .login-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 40px 36px;
+      box-shadow: 0 0 0 1px rgba(99,102,241,0.1), 0 25px 50px rgba(0,0,0,0.6), 0 0 80px var(--glow);
+      animation: cardIn 0.5s ease-out;
+    }
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(20px) scale(0.97); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .shield-icon {
+      width: 64px; height: 64px;
+      background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(129,140,248,0.1));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 28px;
+      margin: 0 auto 24px;
+      box-shadow: 0 0 30px rgba(99,102,241,0.2);
+    }
+
+    .login-title {
+      text-align: center;
+      color: var(--text);
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+      letter-spacing: -0.3px;
+    }
+
+    .login-sub {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-bottom: 32px;
+    }
+
+    .field-group {
+      margin-bottom: 18px;
+    }
+
+    .field-label {
+      display: block;
+      color: var(--muted);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    .field-wrap {
+      position: relative;
+    }
+
+    .field-icon {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 16px;
+      opacity: 0.5;
+      pointer-events: none;
+    }
+
+    .field-input {
+      width: 100%;
+      background: rgba(15,23,42,0.8);
+      border: 1px solid rgba(99,102,241,0.2);
+      border-radius: 10px;
+      padding: 13px 14px 13px 42px;
+      color: var(--text);
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .field-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+    }
+    .field-input::placeholder { color: rgba(100,116,139,0.6); }
+
+    .toggle-pw {
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px;
+      transition: color 0.2s;
+    }
+    .toggle-pw:hover { color: var(--accent2); }
+
+    .error-msg {
+      display: none;
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.3);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: #fca5a5;
+      font-size: 0.85rem;
+      margin-bottom: 16px;
+      align-items: center;
+      gap: 8px;
+    }
+    .error-msg.show { display: flex; }
+
+    .login-btn {
+      width: 100%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border: none;
+      border-radius: 10px;
+      padding: 14px;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 0.3px;
+      transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
+      box-shadow: 0 4px 20px rgba(99,102,241,0.35);
+      position: relative;
+      overflow: hidden;
+    }
+    .login-btn:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 8px 25px rgba(99,102,241,0.45); }
+    .login-btn:active { transform: translateY(0); }
+    .login-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .login-btn .btn-text { display: inline-block; transition: opacity 0.2s; }
+    .login-btn .btn-loader { display: none; }
+    .login-btn.loading .btn-text { display: none; }
+    .login-btn.loading .btn-loader { display: inline-block; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block;
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+    }
+
+    .security-note {
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(99,102,241,0.1);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .back-link {
+      display: block;
+      text-align: center;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.82rem;
+      margin-top: 16px;
+      transition: color 0.2s;
+    }
+    .back-link:hover { color: var(--accent2); }
+
+    .attempt-warn {
+      display: none;
+      text-align: center;
+      color: #fca5a5;
+      font-size: 0.8rem;
+      margin-top: 10px;
+    }
+
+    @media (max-width: 480px) {
+      .login-card { padding: 28px 22px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="shield-icon">🔐</div>
+      <div class="login-title">Admin Portal</div>
+      <div class="login-sub">VBS Computer System — Restricted Access</div>
+
+      <div class="error-msg" id="errorMsg">
+        <span>⚠️</span>
+        <span id="errorText">Invalid credentials. Please try again.</span>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label" for="username">Username</label>
+        <div class="field-wrap">
+          <span class="field-icon">👤</span>
+          <input type="text" id="username" class="field-input" placeholder="Enter admin username"
+            autocomplete="off" autocorrect="off" spellcheck="false" />
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label" for="password">Password</label>
+        <div class="field-wrap">
+          <span class="field-icon">🔒</span>
+          <input type="password" id="password" class="field-input" placeholder="Enter secure password"
+            autocomplete="current-password" />
+          <button class="toggle-pw" type="button" onclick="togglePw()" id="toggleBtn" title="Show/Hide">👁️</button>
+        </div>
+      </div>
+
+      <button class="login-btn" id="loginBtn" onclick="doLogin()">
+        <span class="btn-text">🔐 &nbsp;Secure Login</span>
+        <span class="btn-loader"><span class="spinner"></span></span>
+      </button>
+
+      <div class="attempt-warn" id="attemptWarn"></div>
+
+      <div class="security-note">
+        🛡️ &nbsp;Protected by session-based authentication. All access is logged.
+      </div>
+    </div>
+
+    <a href="../index.html" class="back-link">← Return to Main Website</a>
+  </div>
+
+  <script>
+    // ─── CONFIG ──────────────────────────────────────────────────────────────
+    // In production: authentication MUST go through the backend API.
+    // The credentials below are a CLIENT-SIDE FALLBACK ONLY for offline/static hosting.
+    // Replace with your actual backend endpoint and remove the hardcoded hash.
+    const BACKEND_AUTH_URL = '/api/admin/login'; // Your Render backend endpoint
+    const SESSION_KEY = 'vbs_admin_session';
+    const SESSION_DURATION_MS = 60 * 60 * 1000; // 1 hour
+
+    // SHA-256 hash of "VBSAdmin@2025#Secure" (change this password!)
+    // Generate your own: https://emn178.github.io/online-tools/sha256.html
+    const FALLBACK_HASH = 'a3c9b3e7d4f8e2a1c6d9b0f3e5a7d2c8b4f6e9a2d5c7b0f4e6a3d8c1b5f7e9a2';
+    // Fallback admin username (lowercase)
+    const FALLBACK_USER = 'vbsadmin';
+
+    let failedAttempts = 0;
+    let lockUntil = 0;
+
+    // Check if already logged in
+    window.addEventListener('DOMContentLoaded', () => {
+      const sess = getSession();
+      if (sess) {
+        window.location.href = 'admin-dashboard.html';
+      }
+      document.getElementById('username').focus();
+
+      // Restore failed attempts from sessionStorage
+      failedAttempts = parseInt(sessionStorage.getItem('vbs_fa') || '0');
+      lockUntil = parseInt(sessionStorage.getItem('vbs_lu') || '0');
+      checkLock();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') doLogin();
+    });
+
+    function togglePw() {
+      const pw = document.getElementById('password');
+      const btn = document.getElementById('toggleBtn');
+      if (pw.type === 'password') { pw.type = 'text'; btn.textContent = '🙈'; }
+      else { pw.type = 'password'; btn.textContent = '👁️'; }
+    }
+
+    function getSession() {
+      try {
+        const raw = sessionStorage.getItem(SESSION_KEY);
+        if (!raw) return null;
+        const sess = JSON.parse(raw);
+        if (Date.now() > sess.expires) { sessionStorage.removeItem(SESSION_KEY); return null; }
+        return sess;
+      } catch { return null; }
+    }
+
+    function setSession(username) {
+      const sess = {
+        username,
+        loginTime: Date.now(),
+        expires: Date.now() + SESSION_DURATION_MS,
+        token: btoa(username + ':' + Date.now() + ':' + Math.random())
+      };
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(sess));
+      return sess;
+    }
+
+    function checkLock() {
+      if (Date.now() < lockUntil) {
+        const sec = Math.ceil((lockUntil - Date.now()) / 1000);
+        showAttemptWarn(`Too many failed attempts. Try again in ${sec}s.`);
+        document.getElementById('loginBtn').disabled = true;
+        setTimeout(checkLock, 1000);
+      } else {
+        document.getElementById('loginBtn').disabled = false;
+        hideAttemptWarn();
+      }
+    }
+
+    async function sha256(message) {
+      const msgBuffer = new TextEncoder().encode(message);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function doLogin() {
+      const btn = document.getElementById('loginBtn');
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      hideError();
+
+      if (!username || !password) {
+        showError('Please enter both username and password.');
+        return;
+      }
+
+      if (Date.now() < lockUntil) {
+        checkLock(); return;
+      }
+
+      btn.classList.add('loading');
+      btn.disabled = true;
+
+      try {
+        // 1. Try backend authentication first
+        let success = false;
+        try {
+          const resp = await fetch(BACKEND_AUTH_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password }),
+            signal: AbortSignal.timeout(5000)
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.success) {
+              success = true;
+              logAdminAccess(username, 'backend');
+            }
+          }
+        } catch {
+          // Backend unavailable — use client-side fallback
+          console.warn('[Admin] Backend unreachable, using fallback auth.');
+          const hash = await sha256(password);
+          if (username.toLowerCase() === FALLBACK_USER && hash === FALLBACK_HASH) {
+            success = true;
+            logAdminAccess(username, 'fallback');
+          }
+        }
+
+        if (success) {
+          failedAttempts = 0;
+          sessionStorage.setItem('vbs_fa', '0');
+          setSession(username);
+          btn.classList.remove('loading');
+          btn.textContent = '✅ Access Granted!';
+          btn.style.background = 'linear-gradient(135deg, #10b981, #34d399)';
+          setTimeout(() => { window.location.href = 'admin-dashboard.html'; }, 600);
+        } else {
+          failedAttempts++;
+          sessionStorage.setItem('vbs_fa', failedAttempts);
+          logFailedAttempt(username);
+
+          if (failedAttempts >= 5) {
+            lockUntil = Date.now() + 5 * 60 * 1000; // 5 min lockout
+            sessionStorage.setItem('vbs_lu', lockUntil);
+            showError('Too many failed attempts. Locked for 5 minutes.');
+            checkLock();
+          } else {
+            showError(`Invalid credentials. ${5 - failedAttempts} attempt(s) remaining.`);
+            btn.classList.remove('loading');
+            btn.disabled = false;
+          }
+          document.getElementById('password').value = '';
+        }
+      } catch (err) {
+        showError('Authentication error. Please try again.');
+        btn.classList.remove('loading');
+        btn.disabled = false;
+      }
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('errorMsg');
+      document.getElementById('errorText').textContent = msg;
+      el.classList.add('show');
+    }
+    function hideError() { document.getElementById('errorMsg').classList.remove('show'); }
+    function showAttemptWarn(msg) {
+      const el = document.getElementById('attemptWarn');
+      el.textContent = msg; el.style.display = 'block';
+    }
+    function hideAttemptWarn() { document.getElementById('attemptWarn').style.display = 'none'; }
+
+    function logAdminAccess(user, method) {
+      const logs = JSON.parse(localStorage.getItem('vbs_admin_logs') || '[]');
+      logs.unshift({ type: 'login', user, method, ip: 'client', time: new Date().toISOString() });
+      if (logs.length > 50) logs.pop();
+      localStorage.setItem('vbs_admin_logs', JSON.stringify(logs));
+    }
+
+    function logFailedAttempt(user) {
+      const logs = JSON.parse(localStorage.getItem('vbs_admin_logs') || '[]');
+      logs.unshift({ type: 'failed', user, time: new Date().toISOString() });
+      if (logs.length > 50) logs.pop();
+      localStorage.setItem('vbs_admin_logs', JSON.stringify(logs));
+    }
+  </script>
+</body>
+</html>

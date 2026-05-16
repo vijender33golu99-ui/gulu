@@ -1,0 +1,54 @@
+/* VBS Free Tuition — vbscomputersystem.in | Extracted from index.html */
+
+/* @media queries */
+
+    @media(max-width:860px) {
+      .page {
+        grid-template-columns: 1fr;
+        padding: 16px 16px 50px
+      }
+
+      .tips-grid {
+        grid-template-columns: 1fr 1fr
+      }
+
+      .header-badge {
+        display: none
+      }
+
+      .speed-presets {
+        grid-template-columns: repeat(5, 1fr)
+      }
+    }
+
+    @media(max-width:500px) {
+      .ask-row {
+        flex-direction: column
+      }
+
+      .brand-name {
+        font-size: 1.1rem
+      }
+
+      .tips-grid {
+        grid-template-columns: 1fr
+      }
+    }
+
+    @media (min-width: 1220px) {
+      #session-toggle-btn {
+        left: calc(50% - 576px) !important;
+        z-index: 200 !important;
+      }
+
+      #session-panel {
+        left: calc(50% - 576px) !important;
+        z-index: 200 !important;
+      }
+    }
+
+    @media (max-width: 1220px) {
+      .side-panel {
+        display: none;
+      }
+    }
