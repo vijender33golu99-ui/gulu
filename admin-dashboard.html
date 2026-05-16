@@ -969,16 +969,22 @@ const BACKEND_URL = 'https://vbscomputersystem.onrender.com'; // Update to your 
 const MAIN_SITE_URL = 'https://vbscomputersystem.in';
 
 const API_SERVICES = [
-  { name: 'Gemini AI', icon: '🌟', envKey: 'GEMINI_API_KEY', color: '#4285f4', bg: 'rgba(66,133,244,0.15)', category: 'AI' },
-  { name: 'OpenAI', icon: '🤖', envKey: 'OPENAI_API_KEY', color: '#10a37f', bg: 'rgba(16,163,127,0.15)', category: 'AI' },
-  { name: 'DeepSeek', icon: '🔮', envKey: 'DEEPSEEK_API_KEY', color: '#8b5cf6', bg: 'rgba(139,92,246,0.15)', category: 'AI' },
-  { name: 'MongoDB', icon: '🍃', envKey: 'MONGODB_URI', color: '#4db33d', bg: 'rgba(77,179,61,0.15)', category: 'DB' },
-  { name: 'Supabase', icon: '⚡', envKey: 'SUPABASE_KEY', color: '#3ecf8e', bg: 'rgba(62,207,142,0.15)', category: 'DB' },
-  { name: 'Cloudinary', icon: '☁️', envKey: 'CLOUDINARY_API_KEY', color: '#3448c5', bg: 'rgba(52,72,197,0.15)', category: 'Media' },
-  { name: 'Firebase', icon: '🔥', envKey: 'FIREBASE_API_KEY', color: '#ff6d00', bg: 'rgba(255,109,0,0.15)', category: 'DB' },
-  { name: 'Render Backend', icon: '🚀', envKey: 'RENDER_API_KEY', color: '#6366f1', bg: 'rgba(99,102,241,0.15)', category: 'Hosting' },
-];
+  { name:'Gemini AI', icon:'🌟', envKey:'GEMINI_API_KEY', status:'active', color:'#4285f4', bg:'rgba(66,133,244,0.15)', category:'AI' },
 
+  { name:'OpenAI', icon:'🤖', envKey:'OPENAI_API_KEY', status:'unknown', color:'#10a37f', bg:'rgba(16,163,127,0.15)', category:'AI' },
+
+  { name:'DeepSeek', icon:'🔮', envKey:'DEEPSEEK_API_KEY', status:'active', color:'#8b5cf6', bg:'rgba(139,92,246,0.15)', category:'AI' },
+
+  { name:'MongoDB', icon:'🍃', envKey:'MONGODB_URI', status:'active', color:'#4db33d', bg:'rgba(77,179,61,0.15)', category:'DB' },
+
+  { name:'Supabase', icon:'⚡', envKey:'SUPABASE_KEY', status:'unknown', color:'#3ecf8e', bg:'rgba(62,207,142,0.15)', category:'DB' },
+
+  { name:'Cloudinary', icon:'☁️', envKey:'CLOUDINARY_API_KEY', status:'unknown', color:'#3448c5', bg:'rgba(52,72,197,0.15)', category:'Media' },
+
+  { name:'Firebase', icon:'🔥', envKey:'FIREBASE_API_KEY', status:'unknown', color:'#ff6d00', bg:'rgba(255,109,0,0.15)', category:'DB' },
+
+  { name:'Render Backend', icon:'🚀', envKey:'RENDER_API_KEY', status:'checking', color:'#6366f1', bg:'rgba(99,102,241,0.15)', category:'Hosting' }
+];
 const ENDPOINTS = [
   { service: 'Gemini API', url: 'generativelanguage.googleapis.com', protocol: 'HTTPS/REST', status: 'active' },
   { service: 'OpenAI API', url: 'api.openai.com', protocol: 'HTTPS/REST', status: 'unknown' },
