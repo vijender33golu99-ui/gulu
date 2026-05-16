@@ -1174,7 +1174,7 @@ function renderApiCards(containerId, compact) {
         ${!compact ? `<br><span class="api-masked">${svc.envKey.replace(/_KEY|_URI/, '').slice(0,3)}••••••••${Math.random().toString(36).slice(-3).toUpperCase()}</span>` : ''}
       </div>
       <div class="api-status">
-        <span class="status-badge unknown">${statusLabel}</span>
+        <span class="status-badge ${statusClass}">${statusLabel}</span>
         <span style="font-size:0.68rem;color:var(--muted);">${svc.category}</span>
       </div>`;
     container.appendChild(card);
