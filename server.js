@@ -16,7 +16,7 @@ require('dotenv').config();
 // ── Admin Panel Dependencies ──────────────────────────────────
 const bcrypt = require('bcryptjs');
 const session = require('express-session');
-const MongoStore = require('connect-mongo');
+const MongoStore = require('connect-mongo')(session); // connect-mongo v3 syntax
 const rateLimit = require('express-rate-limit');
 
 const app = express();
