@@ -32,10 +32,9 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   // FIX: MemoryStore hatao — MongoDB ko session store banao (production-safe)
-  store: MongoStore.create({
+  store: new MongoStore({
     mongoUrl: process.env.MONGODB_URI,
-    ttl: 3600,           // 1 ghanta session expire
-    autoRemove: 'native' // expired sessions MongoDB khud hatayega
+    ttl: 3600            // 1 ghanta session expire
   }),
   cookie: {
     secure: false,   // Render HTTPS pe true kar sakte ho
