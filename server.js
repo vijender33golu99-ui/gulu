@@ -16,7 +16,6 @@ require('dotenv').config();
 // ── Admin Panel Dependencies ──────────────────────────────────
 const bcrypt = require('bcryptjs');
 const session = require('express-session');
-const MongoStore = require('connect-mongo')(session); // connect-mongo v3 syntax
 const rateLimit = require('express-rate-limit');
 
 const app = express();
@@ -31,11 +30,6 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'vbs-admin-secret-change-in-production',
   resave: false,
   saveUninitialized: false,
-  // FIX: MemoryStore hatao — MongoDB ko session store banao (production-safe)
-  store: new MongoStore({
-    mongoUrl: process.env.MONGODB_URI,
-    ttl: 3600            // 1 ghanta session expire
-  }),
   cookie: {
     secure: false,   // Render HTTPS pe true kar sakte ho
     httpOnly: true,  // XSS se bachata hai
