@@ -91,8 +91,6 @@ const cachedAnswerSchema = new mongoose.Schema(
   { collection: 'cached_answers' }
 );
 
-cachedAnswerSchema.index({ normalizedQuestion: 1 });
-
 const CachedAnswer = mongoose.models.CachedAnswer ||
   mongoose.model('CachedAnswer', cachedAnswerSchema);
 
