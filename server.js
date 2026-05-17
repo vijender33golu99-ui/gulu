@@ -238,7 +238,8 @@ ${ocrText}`
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userMsg }
           ],
-          response_format: { type: 'json_object' }
+          response_format: { type: 'json_object' },
+          stream: false
         });
       }
 
